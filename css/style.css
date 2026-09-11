@@ -38,7 +38,7 @@ pre { white-space: pre-wrap; font-size: 12px; background: var(--card); padding: 
 
 /* Splash */
 #splash { position: fixed; inset: 0; background: var(--page); display: grid; place-content: center; text-align: center; z-index: 999; }
-#splash img { height: 28px; margin: 0 auto 14px; }
+#splash img { height: 72px; margin: 0 auto 14px; }
 #splash p { color: var(--grey-t); }
 
 /* Layout */
@@ -48,7 +48,8 @@ pre { white-space: pre-wrap; font-size: 12px; background: var(--card); padding: 
   display: flex; flex-direction: column; z-index: 50; transition: transform .35s var(--ease);
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 22px 22px 16px; }
-.brand img { height: 22px; }
+.brand img { height: 34px; width: auto; }
+.brand strong { font-size: 13px; font-weight: 700; letter-spacing: .22em; color: var(--ink); }
 .brand span { font-size: 11px; font-weight: 700; letter-spacing: .18em; color: var(--white); background: var(--purple); border-radius: 6px; padding: 3px 7px; }
 #nav { flex: 1; overflow-y: auto; padding: 4px 12px 12px; }
 .nav-group { font-size: 10.5px; text-transform: uppercase; letter-spacing: .14em; color: var(--grey-t); padding: 16px 10px 6px; }
