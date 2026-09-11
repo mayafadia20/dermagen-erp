@@ -7,7 +7,7 @@ const OBJECT_STORE = 'collections';
 
 export const COLLECTIONS = [
   'ingredients', 'movements', 'formulations', 'suppliers',
-  'purchases', 'invoices', 'payments', 'settings'
+  'purchases', 'invoices', 'payments', 'passwords', 'accelerators', 'settings'
 ];
 
 export const DEFAULT_SETTINGS = {
@@ -22,7 +22,9 @@ export const DEFAULT_SETTINGS = {
   productTypes: ['Shampoing', 'Revitalisant', 'Masque', 'Traitement lissant', 'Sérum', 'Huile capillaire', 'Poudre de soin', 'Capsule', 'Autre'],
   units: ['g', 'kg', 'ml', 'L', 'unité'],
   paymentMethods: ['Virement bancaire', 'Carte de crédit', 'Interac', 'Chèque', 'PayPal', 'Comptant'],
-  paymentTerms: ['Paiement à la commande', 'Net 15', 'Net 30', 'Net 45', 'Net 60']
+  paymentTerms: ['Paiement à la commande', 'Net 15', 'Net 30', 'Net 45', 'Net 60'],
+  passwordCategories: ['Banque & finances', 'Gouvernement', 'Fournisseurs', 'Logiciels & abonnements', 'Réseaux sociaux', 'Site web & domaine', 'Courriel', 'Autre'],
+  acceleratorTypes: ['Accélérateur', 'Incubateur', 'Subvention', 'Concours', 'Financement', 'Programme de mentorat', 'Autre']
 };
 
 const state = {};

@@ -15,6 +15,8 @@ Plateforme de gestion interne de **DermaGen** (Montréal) : inventaire des ingr�
 | Bons de commande | Lignes d'achat, TPS/TVQ, réception qui alimente l'inventaire (lot, péremption, mise à jour du coût), création de la facture en un clic. |
 | Factures | Comptes à payer, échéance calculée selon les conditions du fournisseur, statut automatique (à payer, partielle, en retard, payée). |
 | Paiements | Règlements par facture (virement, carte, Interac…), historique et export CSV. |
+| Demandes d'accélérateurs | Suivi des candidatures (accélérateurs, incubateurs, subventions, concours) : dates limites avec compte à rebours, statut, priorité, valeur, contact, liste de documents à cocher, journal de suivi. |
+| Mots de passe & accès | Coffre chiffré des comptes de l'entreprise (lien, identifiant, mot de passe, informations sensibles) protégé par un mot de passe maître : AES-256-GCM, clé dérivée par PBKDF2, verrouillage automatique après 15 minutes. |
 | Paramètres | Taxes, listes personnalisables, sauvegarde/restauration JSON, données de démonstration. |
 
 ## Fonctionnement technique

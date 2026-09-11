@@ -80,6 +80,10 @@ export async function seedDemo() {
   const inv2 = db.insert('invoices', { number: `FA-${new Date().getFullYear()}-002`, supplierInvoiceNumber: 'PP-1187', supplierId: s3.id, date: addDays(t, -45), dueDate: addDays(t, -15), description: 'Flacons 250 ml (120 unités)', applyTaxes: true, shipping: 25, ...computeTaxes(222, 25, true) });
   void inv2;
 
+  db.insert('accelerators', { program: 'Centech — Propulsion', organization: 'ÉTS', type: 'Accélérateur', status: 'En préparation', priority: 'Haute', cohort: 'Hiver 2027', website: 'https://centech.co', deadline: addDays(t, 21), amount: 0, equity: 0, benefits: 'Bureaux, mentorat, réseau d’investisseurs', contactName: 'Équipe admissions', requirements: '[x] Formulaire en ligne\n[x] Pitch deck\n[ ] Vidéo de présentation (2 min)\n[ ] Plan financier 3 ans', nextStep: 'Tourner la vidéo de présentation', journal: [{ date: addDays(t, -10), text: 'Demande créée' }, { date: addDays(t, -3), text: 'Séance d’information suivie en ligne' }] });
+  db.insert('accelerators', { program: 'Programme Impulsion PME', organization: 'Investissement Québec', type: 'Subvention', status: 'Soumise', priority: 'Moyenne', deadline: addDays(t, -5), submittedAt: addDays(t, -6), amount: 50000, requirements: '[x] Plan d’affaires\n[x] États financiers\n[x] Devis fournisseurs', nextStep: 'Attendre la réponse (délai 6 à 8 semaines)', journal: [{ date: addDays(t, -6), text: 'Dossier soumis en ligne' }] });
+  db.insert('accelerators', { program: 'District 3 — Validation', organization: 'Université Concordia', type: 'Incubateur', status: 'À évaluer', priority: 'Basse', website: 'https://d3center.ca', deadline: addDays(t, 60), nextStep: 'Vérifier les critères d’admissibilité', journal: [{ date: t, text: 'Demande créée' }] });
+
   toast('Données de démonstration chargées');
   location.hash = '#/dashboard';
 }

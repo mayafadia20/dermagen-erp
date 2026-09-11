@@ -16,6 +16,7 @@ export default {
     const due = openInvs.reduce((t, i) => t + invoiceBalance(i), 0);
     const late = openInvs.filter(i => invoiceStatus(i).key === 'late');
     const pendingPO = pos.filter(p => p.status === 'Envoyée').sort((a, b) => (a.expectedDate || '').localeCompare(b.expectedDate || ''));
+    const accs = db.all('accelerators').filter(a => ['À évaluer', 'En préparation', 'Soumise', 'Entrevue / sélection'].includes(a.status)).sort((a, b) => (a.deadline || '9999').localeCompare(b.deadline || '9999'));
     const recentForms = forms.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 6);
     const empty = !ings.length && !forms.length && !db.all('suppliers').length;
 
@@ -55,6 +56,14 @@ export default {
             { label: 'Date', render: f => dateFmt(f.date) },
             { label: 'Statut', render: f => badge(f.status, { 'En développement': 'blue', 'En test': 'amber', 'Validée': 'green' }[f.status] || 'grey') },
           ], rows: recentForms, empty: 'Aucune formulation consignée.' })}
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Demandes d’accélérateurs en cours</h3><a href="#/accelerators" class="muted">Tout voir →</a></div>
+          ${table({ columns: [
+            { label: 'Programme', render: a => `<a href="#/accelerators/${a.id}">${esc(a.program)}</a><div class="muted">${esc(a.organization || '')}</div>` },
+            { label: 'Date limite', render: a => { if (!a.deadline) return '<span class="muted">—</span>'; const d = daysUntil(a.deadline); return `${dateFmt(a.deadline)}<div class="${d <= 14 ? 'pct-bad' : 'muted'}">${d < 0 ? `dépassée de ${-d} j` : d === 0 ? 'aujourd’hui' : `J-${d}`}</div>`; } },
+            { label: 'Statut', render: a => badge(a.status, { 'En préparation': 'blue', 'Soumise': 'amber', 'Entrevue / sélection': 'purple' }[a.status] || 'grey') },
+          ], rows: accs.slice(0, 6), empty: 'Aucune demande en cours.' })}
         </div>
         <div class="card">
           <div class="card-head"><h3>Livraisons attendues</h3><a href="#/purchases" class="muted">Tout voir →</a></div>

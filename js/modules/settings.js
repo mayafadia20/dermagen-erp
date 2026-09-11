@@ -10,7 +10,7 @@ export default {
   title: 'Paramètres & sauvegarde',
   render(el, ctx) {
     const s = db.settings();
-    const counts = ['ingredients', 'movements', 'formulations', 'suppliers', 'purchases', 'invoices', 'payments'].map(c => `${db.all(c).length} ${c}`).join(' · ');
+    const counts = ['ingredients', 'movements', 'formulations', 'suppliers', 'purchases', 'invoices', 'payments', 'passwords', 'accelerators'].map(c => `${db.all(c).length} ${c}`).join(' · ');
     el.innerHTML = `
       <div class="grid two">
         <div class="card">
@@ -35,6 +35,8 @@ export default {
             ${field({ label: 'Unités de stock', name: 'units', type: 'textarea', rows: 4, value: lines(s.units), cols: 1 })}
             ${field({ label: 'Méthodes de paiement', name: 'paymentMethods', type: 'textarea', rows: 4, value: lines(s.paymentMethods), cols: 2 })}
             ${field({ label: 'Conditions de paiement', name: 'paymentTerms', type: 'textarea', rows: 4, value: lines(s.paymentTerms), cols: 1 })}
+            ${field({ label: 'Catégories de mots de passe', name: 'passwordCategories', type: 'textarea', rows: 4, value: lines(s.passwordCategories), cols: 2 })}
+            ${field({ label: 'Types de programmes (accélérateurs)', name: 'acceleratorTypes', type: 'textarea', rows: 4, value: lines(s.acceleratorTypes), cols: 2 })}
             <div class="field cols-4"><button type="submit" class="btn primary">Enregistrer les listes</button></div>
           </form>
         </div>
@@ -66,7 +68,7 @@ export default {
     el.querySelector('[data-lists]').addEventListener('submit', e => {
       e.preventDefault(); const f = e.target;
       const patch = {};
-      for (const k of ['categories', 'productTypes', 'units', 'paymentMethods', 'paymentTerms']) patch[k] = parseLines(f[k].value).length ? parseLines(f[k].value) : DEFAULT_SETTINGS[k];
+      for (const k of ['categories', 'productTypes', 'units', 'paymentMethods', 'paymentTerms', 'passwordCategories', 'acceleratorTypes']) patch[k] = parseLines(f[k].value).length ? parseLines(f[k].value) : DEFAULT_SETTINGS[k];
       db.saveSettings(patch); toast('Listes enregistrées');
     });
     el.querySelector('[data-export]').addEventListener('click', () => download(`dermagen-erp-sauvegarde-${today()}.json`, db.exportJSON()));

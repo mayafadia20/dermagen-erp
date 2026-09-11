@@ -9,8 +9,10 @@ import purchases from './modules/purchases.js';
 import invoices from './modules/invoices.js';
 import payments from './modules/payments.js';
 import settings from './modules/settings.js';
+import passwords from './modules/passwords.js';
+import accelerators from './modules/accelerators.js';
 
-const MODULES = { dashboard, ingredients, formulations, suppliers, purchases, invoices, payments, settings };
+const MODULES = { dashboard, ingredients, formulations, suppliers, purchases, invoices, payments, passwords, accelerators, settings };
 
 const NAV = [
   { group: 'Vue d’ensemble' },
@@ -24,6 +26,9 @@ const NAV = [
   { group: 'Finances' },
   { id: 'invoices', label: 'Factures', icon: '▦' },
   { id: 'payments', label: 'Paiements', icon: '◈' },
+  { group: 'Entreprise' },
+  { id: 'accelerators', label: 'Demandes d’accélérateurs', icon: '➚' },
+  { id: 'passwords', label: 'Mots de passe & accès', icon: '⚿' },
   { group: 'Système' },
   { id: 'settings', label: 'Paramètres & sauvegarde', icon: '⚙' },
 ];
