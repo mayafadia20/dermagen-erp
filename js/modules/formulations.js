@@ -103,7 +103,7 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
       if (src !== qtyEl && document.activeElement !== qtyEl) qtyEl.value = pctEl.value === '' ? '' : String(Math.round(grams * 1000) / 1000);
       const opt = tr.querySelector('[name=ingredientId]').selectedOptions[0];
       const cpg = Number(opt?.dataset.cost) || 0;
-      tr.querySelector('[data-cost]').textContent = money(grams * cpg);
+      tr.querySelector('td[data-cost]').textContent = money(grams * cpg);
       pct += p; cost += grams * cpg;
     });
     const tp = form.querySelector('[data-total-pct]');
