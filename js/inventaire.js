@@ -3,7 +3,7 @@
 // (reconnus par nom, INCI ou alias s'ils existent déjà), complète leurs fiches (INCI, CAS, lot,
 // péremption, fournisseur) et enregistre une entrée de stock pour chaque contenant photographié.
 import { db } from './store.js';
-import { today, toast, confirmDialog } from './ui.js';
+import { today, toast, confirmDialog, costPerGram, gramsToUnit } from './ui.js';
 import { recordMovement } from './modules/ingredients.js';
 
 export const INVENTAIRE_TAG = 'inventaire-2026-10-09';
@@ -108,6 +108,27 @@ function convert(qty, from, to) {
 
 export function inventaireDone() { return db.all('movements').some(m => m.ref === INVENTAIRE_TAG); }
 
+// Consommation des essais : chaque formulation importée du document « Calcul et quantités » est
+// comptée comme fabriquée une fois à sa taille de lot. Les ingrédients sans stock saisi sont ignorés.
+export function syncTrialBatches() {
+  if (!inventaireDone()) return { n: 0, skipped: [] };
+  const forms = db.all('formulations').filter(f => f.importTag === 'essais-2026-10' && !(f.batches || []).some(b => b.lot === f.code + '-ESSAI'));
+  const skipped = new Set(); let n = 0;
+  for (const f of forms) {
+    const qty = Number(f.batchSize) || 100; let cost = 0;
+    for (const l of f.lines || []) {
+      const ing = db.get('ingredients', l.ingredientId); if (!ing) continue;
+      const grams = qty * (Number(l.pct) || 0) / 100;
+      if (!(Number(ing.stock) > 0)) { skipped.add(ing.name); continue; }
+      cost += grams * costPerGram(ing);
+      recordMovement(ing.id, -gramsToUnit(grams, ing.unit), { type: 'production', reason: `Essai ${f.code} — ${f.name} v${f.version || 1}`, ref: f.code, date: f.date || DATE });
+    }
+    db.update('formulations', f.id, { batches: [...(f.batches || []), { id: Date.now().toString(36) + n, date: f.date || DATE, qty, lot: f.code + '-ESSAI', notes: 'Essai de formulation (document « Calcul et quantités »), quantités déduites du stock', cost }] });
+    n++;
+  }
+  return { n, skipped: [...skipped] };
+}
+
 export async function importInventaire(navigate) {
   if (inventaireDone()) { toast('L’inventaire photographié a déjà été importé.', 'warn'); return; }
   if (!await confirmDialog(`Importer l’inventaire photographié le 9 octobre 2026 ? ${ITEMS.length} ingrédients (entrée de stock = contenu des emballages) et ${EQUIPMENT.length} types de matériel de laboratoire seront ajoutés. Les fiches existantes sont complétées, pas dupliquées.`, { danger: false, label: 'Importer' })) return;
@@ -147,6 +168,8 @@ export async function importInventaire(navigate) {
     recordMovement(ing.id, e.qty, { type: 'entree', reason: 'Inventaire photographié (verrerie et matériel)', ref: INVENTAIRE_TAG, date: DATE });
   }
 
-  toast(`Inventaire importé : ${createdIng} ingrédient(s) créé(s), ${updatedIng} complété(s), ${createdEq} article(s) de matériel`);
+  const t = syncTrialBatches();
+  toast(`Inventaire importé : ${createdIng} ingrédient(s) créé(s), ${updatedIng} complété(s), ${createdEq} article(s) de matériel` + (t.n ? ` · ${t.n} essai(s) déduit(s) du stock` : ''));
+  if (t.skipped.length) setTimeout(() => toast('Sans stock saisi, non déduits : ' + t.skipped.join(', '), 'warn'), 600);
   navigate && navigate('ingredients');
 }

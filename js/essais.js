@@ -3,6 +3,7 @@
 // (reconnus par nom ou INCI s'ils existent déjà) puis les formulations, sans doublon.
 import { db } from './store.js';
 import { today, isoWeek, toast, confirmDialog } from './ui.js';
+import { syncTrialBatches } from './inventaire.js';
 
 // Catalogue des ingrédients cités, avec les noms sous lesquels ils peuvent déjà exister dans l'inventaire.
 const INGREDIENTS = {
@@ -119,6 +120,7 @@ export async function importEssais(navigate) {
       result: e.result || '', notes: e.notes, importTag: ESSAIS_TAG, importKey: e.key
     });
   }
-  toast(`${todo.length} formulation(s) importée(s)` + (created.size ? ` · ${created.size} ingrédient(s) créé(s)` : ''));
+  const t = syncTrialBatches();
+  toast(`${todo.length} formulation(s) importée(s)` + (created.size ? ` · ${created.size} ingrédient(s) créé(s)` : '') + (t.n ? ` · ${t.n} essai(s) déduit(s) du stock` : ''));
   navigate && navigate('formulations');
 }
