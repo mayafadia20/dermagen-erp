@@ -348,6 +348,8 @@ body.login-open { overflow: hidden; }
 .login-card label.login-remember { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; color: var(--ink-2); }
 .login-submit { justify-content: center; width: 100%; padding: 12px 18px; margin-top: 4px; font-size: 14.5px; }
 .login-error { background: var(--red-bg); color: var(--red); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 13px; }
+.login-ok { background: var(--green-bg); color: var(--green); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 13px; }
+.login-foot a { color: var(--purple-dk); }
 .login-foot { font-size: 12px; margin-top: 16px; }
 
 /* ---------- Menu utilisateur ---------- */

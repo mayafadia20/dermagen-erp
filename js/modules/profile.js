@@ -1,7 +1,7 @@
 // Mon profil : informations du compte, mot de passe, et gestion des utilisateurs (administrateur·rice).
 import { db } from '../store.js';
 import { esc, toast, confirmDialog, openModal, field, table, badge, dateFmt, statCard } from '../ui.js';
-import { currentUser, isAdmin, ROLES, roleLabel, createUser, setPassword, verifyPassword, initials, pickColor, logout, avatarHtml } from '../auth.js';
+import { currentUser, isAdmin, ROLES, roleLabel, createUser, setPassword, verifyPassword, initials, pickColor, logout, avatarHtml, isCloud, sendResetEmail } from '../auth.js';
 
 const ROLE_KIND = { admin: 'purple', formulatrice: 'blue', lecture: 'grey' };
 const COLORS = ['#8d7bf0', '#f06b9c', '#3b9ddd', '#2f9e6b', '#e0903b', '#8a5cf5', '#d64545', '#2bb3b1'];
@@ -62,7 +62,7 @@ export default {
           ], rows: users
         })}
       </div>` : ''}
-      <p class="muted" style="font-size:12px">Les comptes et leurs empreintes de mot de passe (PBKDF2-SHA-256, 150 000 itérations) sont enregistrés dans ce navigateur avec le reste des données. Cette connexion protège l’accès à l’application sur un poste partagé ; elle ne chiffre pas les données elles-mêmes, qui restent lisibles par quiconque a accès au profil du navigateur. Les sauvegardes JSON contiennent les comptes.</p>`;
+      <p class="muted" style="font-size:12px">${isCloud() ? 'Les comptes et mots de passe sont gérés par Supabase Auth ; les données de l’ERP sont dans la base en ligne de l’entreprise et partagées par toute l’équipe.' : 'Les comptes et leurs empreintes de mot de passe (PBKDF2-SHA-256, 150 000 itérations) sont enregistrés dans ce navigateur avec le reste des données. Cette connexion protège l’accès à l’application sur un poste partagé ; elle ne chiffre pas les données elles-mêmes, qui restent lisibles par quiconque a accès au profil du navigateur. Les sauvegardes JSON contiennent les comptes.'}</p>`;
 
     el.querySelector('[data-logout]').addEventListener('click', logout);
     const info = el.querySelector('[data-info]');
@@ -91,7 +91,7 @@ export default {
         ${field({ label: 'Nom complet', name: 'name', required: true, cols: 4 })}
         ${field({ label: 'Courriel', name: 'email', type: 'email', required: true, cols: 4 })}
         ${field({ label: 'Rôle', name: 'role', type: 'select', options: ROLES, value: 'formulatrice', cols: 2 })}
-        ${field({ label: 'Mot de passe provisoire', name: 'password', type: 'text', required: true, cols: 2, help: 'À transmettre à la personne, qui pourra le changer dans son profil.', attrs: 'minlength="6"' })}
+        ${field({ label: 'Mot de passe provisoire', name: 'password', type: 'text', required: true, cols: 2, help: isCloud() ? 'À transmettre à la personne. Si la confirmation par courriel est activée dans Supabase, elle devra d’abord cliquer le lien reçu.' : 'À transmettre à la personne, qui pourra le changer dans son profil.', attrs: 'minlength="6"' })}
       </div>`,
       submitLabel: 'Créer le compte',
       async onSubmit(d) { await createUser({ name: d.name, email: d.email, password: d.password, role: d.role, color: pickColor() }); toast(`Compte créé pour ${d.name}`); }
@@ -108,6 +108,7 @@ export default {
       }
       if (reset) {
         const u = db.get('users', reset.dataset.resetUser);
+        if (isCloud()) { if (await confirmDialog(`Envoyer à ${u.email} un courriel pour choisir un nouveau mot de passe ?`, { danger: false, label: 'Envoyer' })) { try { await sendResetEmail(u.email); toast('Courriel de réinitialisation envoyé'); } catch (ex) { toast(ex.message, 'err'); } } return; }
         openModal({ title: `Réinitialiser le mot de passe — ${u.name}`, body: `<div class="form-grid">${field({ label: 'Nouveau mot de passe provisoire', name: 'password', type: 'text', required: true, cols: 4, attrs: 'minlength="6"' })}</div>`, submitLabel: 'Réinitialiser',
           async onSubmit(d) { await setPassword(u.id, d.password, { mustChange: true }); toast('Mot de passe réinitialisé'); } });
       }

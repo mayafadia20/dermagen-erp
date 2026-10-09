@@ -97,6 +97,7 @@ async function boot() {
   await db.init();
   $('#splash').remove();
   await requireLogin();
+  try { await db.sync(); } catch (e) { console.warn(e); toast('Base en ligne injoignable : travail sur la copie locale, les modifications seront envoyées dès que possible.', 'warn'); }
   installReadOnlyGuard();
   paintUser();
   document.addEventListener('user-changed', paintUser);

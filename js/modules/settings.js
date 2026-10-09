@@ -3,6 +3,7 @@ import { db, DEFAULT_SETTINGS } from '../store.js';
 import { esc, toast, confirmDialog, field, download, today } from '../ui.js';
 import { seedDemo } from '../seed.js';
 import { MODELS, EFFORTS } from '../chimiste.js';
+import { isCloud } from '../auth.js';
 
 const lines = (arr) => (arr || []).join('\n');
 const parseLines = (s) => String(s || '').split('\n').map(x => x.trim()).filter(Boolean);
@@ -53,8 +54,12 @@ export default {
           </form>
         </div>
         <div class="card">
+          <h2>Base de données</h2>
+          <div data-cloud-status></div>
+        </div>
+        <div class="card">
           <h2>Sauvegarde & restauration</h2>
-          <p class="muted" style="margin:6px 0 12px">Les données sont stockées dans ce navigateur (IndexedDB). Exportez régulièrement une sauvegarde JSON et conservez-la (OneDrive, Google Drive…). Pour travailler sur un autre ordinateur, importez cette sauvegarde.</p>
+          <p class="muted" style="margin:6px 0 12px">${isCloud() ? 'Les données vivent dans la base en ligne (sauvegardée quotidiennement par Supabase). L’export JSON reste utile comme copie hors ligne ; l’import envoie le fichier vers la base en ligne pour toute l’équipe.' : 'Les données sont stockées dans ce navigateur (IndexedDB). Exportez régulièrement une sauvegarde JSON et conservez-la (OneDrive, Google Drive…). Pour travailler sur un autre ordinateur, importez cette sauvegarde.'}</p>
           <p><b>Contenu actuel :</b> <span class="muted">${esc(counts)}</span></p>
           <div class="actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
             <button class="btn primary" data-export>⬇ Exporter la sauvegarde (JSON)</button>
@@ -89,6 +94,16 @@ export default {
       toast('Réglages de l’assistante enregistrés');
     });
     el.querySelector('[data-clear-key]').addEventListener('click', () => { db.saveSettings({ anthropicKey: '' }); toast('Clé effacée'); });
+    const cs = el.querySelector('[data-cloud-status]');
+    const paintCloud = () => {
+      const st = db.cloudStatus();
+      if (!st.enabled) { cs.innerHTML = '<p class="muted">Mode local : les données restent dans ce navigateur. Pour une base partagée par l’équipe, configurer Supabase dans <code>js/config.js</code> (voir le README).</p>'; return; }
+      cs.innerHTML = `<p><b>Supabase</b> · projet <code>${esc(st.region)}</code> · ${st.ready ? '<span class="badge green">connecté</span>' : '<span class="badge amber">connexion…</span>'}</p>
+        <p class="muted" style="margin-top:6px">${st.pending ? `${st.pending} modification(s) en attente d’envoi${st.error ? ' · ' + esc(st.error) : ''}` : 'Tout est synchronisé.'} Les autres postes voient les changements en temps réel.</p>
+        <div class="actions" style="display:flex;gap:8px;margin-top:10px"><button class="btn sm" data-cloud-flush>Synchroniser maintenant</button></div>`;
+      cs.querySelector('[data-cloud-flush]')?.addEventListener('click', async () => { await db.flush(); paintCloud(); toast(db.cloudStatus().pending ? 'Des modifications restent en attente' : 'Synchronisé'); });
+    };
+    paintCloud(); const offCloud = db.onCloud(paintCloud); el.addEventListener('DOMNodeRemoved', () => offCloud(), { once: true });
     el.querySelector('[data-export]').addEventListener('click', () => download(`dermagen-erp-sauvegarde-${today()}.json`, db.exportJSON()));
     el.querySelector('[data-import]').addEventListener('change', async e => {
       const file = e.target.files[0]; if (!file) return;
@@ -99,7 +114,7 @@ export default {
     });
     el.querySelector('[data-seed]').addEventListener('click', () => seedDemo());
     el.querySelector('[data-reset]').addEventListener('click', async () => {
-      if (await confirmDialog('Effacer TOUTES les données de l’ERP dans ce navigateur ? Cette action est irréversible (exportez d’abord une sauvegarde).', { label: 'Tout effacer' })) { await db.reset(); toast('Données effacées'); ctx.navigate('dashboard'); }
+      if (await confirmDialog(isCloud() ? 'Effacer TOUTES les données de l’ERP dans la base en ligne, pour toute l’équipe ? Cette action est irréversible (exportez d’abord une sauvegarde).' : 'Effacer TOUTES les données de l’ERP dans ce navigateur ? Cette action est irréversible (exportez d’abord une sauvegarde).', { label: 'Tout effacer' })) { await db.reset(); toast('Données effacées'); ctx.navigate('dashboard'); }
     });
   }
 };

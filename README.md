@@ -21,10 +21,22 @@ Plateforme de gestion interne de **DermaGen** (Montréal) : inventaire des ingr�
 | Mon profil & connexion | Écran de connexion à l'ouverture (création du compte administrateur au premier lancement), profil (nom, courriel, avatar, mot de passe), gestion des utilisateurs et des rôles par l'administrateur·rice : Administrateur·rice, Formulateur·rice, Lecture seule. Empreintes PBKDF2-SHA-256, session par navigateur. |
 | Paramètres | Taxes, listes personnalisables, clé API et modèle de l'assistante, sauvegarde/restauration JSON, données de démonstration (administrateur·rice). |
 
+## Base de données en ligne (Supabase)
+
+Par défaut l'application fonctionne en mode local (données dans le navigateur). Pour une base partagée par l'équipe, sauvegardée et synchronisée en temps réel :
+
+1. Créer un projet sur [supabase.com](https://supabase.com) (région **Canada (Central)**, Montréal).
+2. Dans *SQL Editor*, exécuter `supabase/schema.sql`.
+3. Dans *Authentication → URL Configuration*, mettre `https://erp.dermagen.ca` comme Site URL et l'ajouter aux Redirect URLs.
+4. Dans *Project Settings → API*, copier l'URL du projet et la clé `anon public` dans `js/config.js`.
+5. Pousser sur `main`. À la première connexion, les données déjà présentes dans le navigateur sont envoyées vers la base en ligne ; le premier compte créé devient administrateur.
+
+Les comptes sont gérés par Supabase Auth (courriel + mot de passe, réinitialisation par courriel). La clé `anon` est publique par conception ; la sécurité repose sur les règles RLS du schéma, qui réservent la table aux utilisateurs authentifiés.
+
 ## Fonctionnement technique
 
 - Application web statique : HTML, CSS et JavaScript (modules ES), **aucun serveur ni build**.
-- Les données sont stockées dans le navigateur (IndexedDB). Elles ne quittent jamais l'ordinateur.
+- Sans Supabase, les données sont stockées dans le navigateur (IndexedDB). Avec Supabase, le navigateur garde une copie locale et envoie chaque modification à la base en ligne (file d'attente si hors ligne).
 - Pour changer d'ordinateur ou faire une copie de sécurité : *Paramètres → Exporter la sauvegarde (JSON)*, puis *Importer* sur l'autre poste.
 - Hébergée gratuitement sur GitHub Pages depuis la branche `main`.
 
