@@ -17,7 +17,8 @@ Plateforme de gestion interne de **DermaGen** (Montréal) : inventaire des ingr�
 | Paiements | Règlements par facture (virement, carte, Interac…), historique et export CSV. |
 | Demandes d'accélérateurs | Suivi des candidatures (accélérateurs, incubateurs, subventions, concours) : dates limites avec compte à rebours, statut, priorité, valeur, contact, liste de documents à cocher, journal de suivi. |
 | Mots de passe & accès | Coffre chiffré des comptes de l'entreprise (lien, identifiant, mot de passe, informations sensibles) protégé par un mot de passe maître : AES-256-GCM, clé dérivée par PBKDF2, verrouillage automatique après 15 minutes. |
-| Paramètres | Taxes, listes personnalisables, sauvegarde/restauration JSON, données de démonstration. |
+| Assistante chimiste | Discussion avec un·e chimiste cosmétique sénior (API Claude, appelée directement depuis le navigateur avec votre clé) qui connaît l'inventaire, le matériel et les formulations : liste de vérification avant un essai, faisabilité selon le stock, procédé, pH, conservation, tests de stabilité. Profil défini dans `skills/chimiste-cosmetique/SKILL.md`. |
+| Paramètres | Taxes, listes personnalisables, clé API et modèle de l'assistante, sauvegarde/restauration JSON, données de démonstration. |
 
 ## Fonctionnement technique
 

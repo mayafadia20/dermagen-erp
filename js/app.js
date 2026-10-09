@@ -11,8 +11,9 @@ import payments from './modules/payments.js';
 import settings from './modules/settings.js';
 import passwords from './modules/passwords.js';
 import accelerators from './modules/accelerators.js';
+import chat from './modules/chat.js';
 
-const MODULES = { dashboard, ingredients, formulations, suppliers, purchases, invoices, payments, passwords, accelerators, settings };
+const MODULES = { dashboard, ingredients, formulations, chat, suppliers, purchases, invoices, payments, passwords, accelerators, settings };
 
 const NAV = [
   { group: 'Vue d’ensemble' },
@@ -20,6 +21,7 @@ const NAV = [
   { group: 'Laboratoire' },
   { id: 'ingredients', label: 'Inventaire des ingrédients', icon: '⚗' },
   { id: 'formulations', label: 'Formulations R&D', icon: '✦' },
+  { id: 'chat', label: 'Assistante chimiste', icon: '⚗' },
   { group: 'Approvisionnement' },
   { id: 'suppliers', label: 'Fournisseurs', icon: '⌂' },
   { id: 'purchases', label: 'Bons de commande', icon: '▤' },
@@ -83,7 +85,10 @@ async function boot() {
   await db.init();
   window.addEventListener('hashchange', render);
   let dirty = false;
-  db.on(() => { if (document.body.classList.contains('modal-open')) dirty = true; else render(); });
+  db.on((col) => {
+    if (col === 'chats' && current && current.view === 'chat') return;   // la discussion gère son propre affichage pendant une réponse
+    if (document.body.classList.contains('modal-open')) dirty = true; else render();
+  });
   document.addEventListener('modal-closed', () => { if (dirty && !document.body.classList.contains('modal-open')) { dirty = false; render(); } });
   $('#menu-btn').addEventListener('click', () => $('#sidebar').classList.toggle('open'));
   $('#global-search').addEventListener('keydown', e => {

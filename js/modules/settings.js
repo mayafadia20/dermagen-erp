@@ -2,6 +2,7 @@
 import { db, DEFAULT_SETTINGS } from '../store.js';
 import { esc, toast, confirmDialog, field, download, today } from '../ui.js';
 import { seedDemo } from '../seed.js';
+import { MODELS, EFFORTS } from '../chimiste.js';
 
 const lines = (arr) => (arr || []).join('\n');
 const parseLines = (s) => String(s || '').split('\n').map(x => x.trim()).filter(Boolean);
@@ -41,6 +42,16 @@ export default {
           </form>
         </div>
         <div class="card">
+          <h2>Assistante chimiste</h2>
+          <p class="muted" style="margin:6px 0 12px">La discussion avec le chimiste cosmétique utilise l’API Claude d’Anthropic directement depuis ce navigateur. La clé est conservée ici, dans ce navigateur, et n’est envoyée qu’à api.anthropic.com. Créez une clé sur <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a>. Le profil du chimiste est le fichier <code>skills/chimiste-cosmetique/SKILL.md</code> du dépôt.</p>
+          <form data-chat class="form-grid">
+            ${field({ label: 'Clé API Claude', name: 'anthropicKey', type: 'password', value: s.anthropicKey, cols: 4, placeholder: 'sk-ant-…', attrs: 'autocomplete="off"' })}
+            ${field({ label: 'Modèle', name: 'chatModel', type: 'select', options: MODELS, value: s.chatModel, cols: 2 })}
+            ${field({ label: 'Niveau de réflexion', name: 'chatEffort', type: 'select', options: EFFORTS, value: s.chatEffort, cols: 2, help: 'Approfondi = réponses plus poussées mais plus lentes et plus coûteuses.' })}
+            <div class="field cols-4" style="flex-direction:row;gap:8px;flex-wrap:wrap"><button type="submit" class="btn primary">Enregistrer</button><button type="button" class="btn" data-clear-key>Effacer la clé</button></div>
+          </form>
+        </div>
+        <div class="card">
           <h2>Sauvegarde & restauration</h2>
           <p class="muted" style="margin:6px 0 12px">Les données sont stockées dans ce navigateur (IndexedDB). Exportez régulièrement une sauvegarde JSON et conservez-la (OneDrive, Google Drive…). Pour travailler sur un autre ordinateur, importez cette sauvegarde.</p>
           <p><b>Contenu actuel :</b> <span class="muted">${esc(counts)}</span></p>
@@ -71,6 +82,12 @@ export default {
       for (const k of ['categories', 'productTypes', 'units', 'paymentMethods', 'paymentTerms', 'passwordCategories', 'acceleratorTypes']) patch[k] = parseLines(f[k].value).length ? parseLines(f[k].value) : DEFAULT_SETTINGS[k];
       db.saveSettings(patch); toast('Listes enregistrées');
     });
+    el.querySelector('[data-chat]').addEventListener('submit', e => {
+      e.preventDefault(); const f = e.target;
+      db.saveSettings({ anthropicKey: f.anthropicKey.value.trim(), chatModel: f.chatModel.value, chatEffort: f.chatEffort.value });
+      toast('Réglages de l’assistante enregistrés');
+    });
+    el.querySelector('[data-clear-key]').addEventListener('click', () => { db.saveSettings({ anthropicKey: '' }); toast('Clé effacée'); });
     el.querySelector('[data-export]').addEventListener('click', () => download(`dermagen-erp-sauvegarde-${today()}.json`, db.exportJSON()));
     el.querySelector('[data-import]').addEventListener('change', async e => {
       const file = e.target.files[0]; if (!file) return;
