@@ -311,6 +311,49 @@ function renderDetail(el, ctx, f) {
 }
 
 
+// ---------- Recommandation de l'assistante chimiste sur une fiche théorique ----------
+import { ask, apiConfig, renderMarkdown } from '../chimiste.js';
+
+function recoFingerprint(r) {
+  const essais = db.all('formulations').filter(f => f.recipeId === r.id).map(f => f.id + ':' + (f.updatedAt || '')).join('|');
+  const stock = recipeLines(r).map(l => { const i = db.get('ingredients', l.ingredientId); return i ? `${i.id}=${i.stock}` : '?'; }).join('|');
+  const src = JSON.stringify(r.lines) + '#' + essais + '#' + stock;
+  let h = 5381; for (let i = 0; i < src.length; i++) h = ((h << 5) + h + src.charCodeAt(i)) | 0;
+  return String(h);
+}
+
+const RECO_PROMPT = (r) => `Donne ta recommandation pour la fiche théorique « ${r.name} » avant le prochain essai au laboratoire. Appuie-toi uniquement sur le contexte ERP fourni (formule théorique, stock, formulations réelles déjà faites avec leurs observations et commentaires). Structure en quatre points courts avec des titres en gras : 1) Faisabilité avec le stock actuel (ingrédients manquants ou insuffisants pour un lot de 100 g) ; 2) Points de vigilance de la formule (plages d’usage, compatibilités, pH, ordre d’addition, température) ; 3) Ce que les essais précédents suggèrent (s’il n’y en a pas, dis-le en une phrase) ; 4) Proposition concrète pour le prochain essai (ajustements de % ou de procédé, et quoi mesurer). Maximum 250 mots, pas de préambule, pas de recherche web.`;
+
+let recoRunning = null;
+async function loadRecommendation(r, el, { force = false } = {}) {
+  const box = el.querySelector('[data-reco]'), when = el.querySelector('[data-reco-date]'), btn = el.querySelector('[data-reco-refresh]');
+  if (!box) return;
+  const cfg = apiConfig();
+  if (!cfg.key) { box.innerHTML = `<div class="muted">Pour obtenir une recommandation, enregistre une clé API Claude dans <a href="#/settings">Paramètres → Assistante chimiste</a>.</div>`; return; }
+  const fp = recoFingerprint(r);
+  const cached = r.reco;
+  if (cached && cached.text && !force) {
+    box.innerHTML = renderMarkdown(cached.text);
+    when.textContent = (cached.fp === fp ? 'Générée le ' : 'À actualiser · générée le ') + new Date(cached.at).toLocaleString('fr-CA', { dateStyle: 'medium', timeStyle: 'short' });
+    if (cached.fp === fp) return;
+  }
+  if (recoRunning) recoRunning.abort();
+  const ctrl = new AbortController(); recoRunning = ctrl;
+  btn.disabled = true; when.textContent = 'Analyse en cours…';
+  if (!cached || force) box.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+  try {
+    const res = await ask({ history: [{ role: 'user', content: RECO_PROMPT(r) }], recipeId: r.id, skill: 'chimiste', web: false, signal: ctrl.signal,
+      onDelta: (_, acc) => { box.innerHTML = renderMarkdown(acc); } });
+    if (ctrl.signal.aborted) return;
+    box.innerHTML = renderMarkdown(res.text);
+    const reco = { text: res.text, at: new Date().toISOString(), fp };
+    try { db.update('recipes', r.id, { reco }); r.reco = reco; } catch (_) { /* lecture seule : pas de mémorisation */ }
+    when.textContent = 'Générée à l’instant';
+  } catch (e) {
+    if (e.name !== 'AbortError') { box.innerHTML = `<div class="warnbox" style="margin:0">${esc(e.message || 'Erreur')}</div>`; when.textContent = ''; }
+  } finally { if (recoRunning === ctrl) recoRunning = null; btn.disabled = false; }
+}
+
 // ---------- Fiches théoriques (cahier de charge) ----------
 function recipeLinkHtml(f) {
   const r = f.recipeId ? db.get('recipes', f.recipeId) : null;
@@ -394,10 +437,17 @@ function renderRecipe(el, ctx, r) {
         ], rows: lines
       })}
     </div>
+    <div class="card reco-card">
+      <div class="card-head"><h3><span class="reco-icon">⚗</span> Recommandation de l’assistante chimiste</h3><div class="actions"><span class="muted" data-reco-date></span><button class="btn sm" data-reco-refresh title="Redemander une recommandation à jour">Actualiser</button></div></div>
+      <div class="md reco-body" data-reco></div>
+      <div class="muted" style="font-size:12px;margin-top:10px">Recommandation générée par l’IA à partir de la fiche, du stock et des essais précédents. Elle ne remplace ni les tests ni l’évaluation de sécurité. Pour approfondir, pose la question dans <a href="#/chat">Assistante chimiste</a>.</div>
+    </div>
     <div class="card">
       <div class="card-head"><h3>Formulations réelles</h3><span class="muted">Chaque essai garde ses observations, ses résultats et les commentaires pour la prochaine fois.</span></div>
       ${formTable(list)}
     </div>`;
+  loadRecommendation(r, el);
+  el.querySelector('[data-reco-refresh]').addEventListener('click', () => loadRecommendation(r, el, { force: true }));
   const create = () => openFormulationForm(null, id => ctx.navigate('formulations', id), { fromRecipe: r });
   el.querySelector('[data-create]').addEventListener('click', create);
   el.addEventListener('click', e => { const tr = e.target.closest('tr[data-open]'); if (tr) ctx.navigate('formulations', tr.dataset.open); });

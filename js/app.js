@@ -106,6 +106,7 @@ async function boot() {
   let dirty = false;
   db.on((col) => {
     if (col === 'chats' && current && current.view === 'chat') return;   // la discussion gère son propre affichage pendant une réponse
+    if (col === 'recipes' && current && current.view === 'formulations' && (current.id || '').startsWith('fiche-')) return;   // la fiche mémorise sa recommandation sans se re-rendre
     if (document.body.classList.contains('modal-open')) dirty = true; else render();
   });
   document.addEventListener('modal-closed', () => { if (dirty && !document.body.classList.contains('modal-open')) { dirty = false; render(); } });

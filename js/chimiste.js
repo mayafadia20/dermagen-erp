@@ -39,7 +39,7 @@ Tu es un·e chimiste cosmétique sénior spécialisé·e en soins capillaires qu
 // ---------- Contexte généré à partir des données de l'ERP ----------
 function fmtQty(i) { return `${num(i.stock, 3)} ${i.unit}`; }
 
-export function buildContext(formulationId) {
+export function buildContext(formulationId, recipeId) {
   const ings = db.all('ingredients').slice().sort((a, b) => a.name.localeCompare(b.name));
   const lab = ings.filter(i => i.category === 'Matériel de laboratoire');
   const mats = ings.filter(i => i.category !== 'Matériel de laboratoire');
@@ -63,6 +63,22 @@ export function buildContext(formulationId) {
   if (recipes.length) {
     lines.push('', `## Fiches théoriques de la gamme (cahier de charge, ${recipes.length})`);
     for (const r of recipes) { const comp = (r.lines || []).map(([k, p]) => `${k} ${p}%`).join(', '); lines.push(`- ${r.name} (${r.phase === 'T' ? 'phase T' : 'phase N'}, ${r.bottle}) : ${comp}, eau qsp 100. ${r.usage || ''} ${r.warning ? 'Attention : ' + r.warning : ''}`); }
+  }
+  const rec = recipeId ? db.get('recipes', recipeId) : null;
+  if (rec) {
+    lines.push('', `## Fiche théorique concernée : ${rec.name} (${rec.bottle}, ${rec.variant}, phase ${rec.phase})`);
+    if (rec.description) lines.push(`Description : ${rec.description}`);
+    if (rec.usage) lines.push(`Utilisation : ${rec.usage}`);
+    if (rec.warning) lines.push(`Avertissement du cahier de charge : ${rec.warning}`);
+    lines.push('Formule théorique (pour 100 g) : eau qsp 100 + ' + (rec.lines || []).map(([k, p]) => `${k} ${p} %`).join(', '));
+    const essais = db.all('formulations').filter(x => x.recipeId === rec.id).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    lines.push(`Formulations réelles rattachées : ${essais.length}`);
+    for (const e of essais) {
+      const comp = (e.lines || []).map(l => { const i = db.get('ingredients', l.ingredientId); return `${i ? i.name : '?'} ${num(l.pct, 2)}%`; }).join(', ');
+      lines.push(`- ${e.code} v${e.version || 1} (${e.date || '—'}, ${e.status}) : ${comp}`);
+      const obs = [['pH', e.ph], ['Viscosité', e.viscosity], ['Aspect', e.aspect], ['Stabilité', e.stability], ['Résultats', e.result], ['Commentaires pour la prochaine fois', e.notes]].filter(x => x[1]);
+      for (const [k, v] of obs) lines.push(`  ${k} : ${v}`);
+    }
   }
   const f = formulationId ? db.get('formulations', formulationId) : null;
   if (f) {
@@ -168,13 +184,14 @@ async function readStream(res, { onDelta, onEvent, textSoFar }) {
  * history : [{ role: 'user' | 'assistant', content: string }]
  * Retourne { text, sources, stopReason, usage }.
  */
-export async function ask({ history, formulationId, skill = DEFAULT_SKILL, onDelta, onEvent, signal }) {
-  const { key, model, effort, web } = apiConfig();
+export async function ask({ history, formulationId, recipeId, skill = DEFAULT_SKILL, web, onDelta, onEvent, signal }) {
+  const cfg = apiConfig(); const { key, model, effort } = cfg;
+  if (web === undefined) web = cfg.web;
   if (!key) throw new Error('Aucune clé API enregistrée. Ajoutez-la dans Paramètres → Assistante chimiste.');
   const skillText = await loadSkill(skill);
   const system = [
     { type: 'text', text: skillText, cache_control: { type: 'ephemeral' } },
-    { type: 'text', text: buildContext(formulationId) },
+    { type: 'text', text: buildContext(formulationId, recipeId) },
   ];
   if (web) system.push({ type: 'text', text: WEB_NOTE });
   const baseMessages = history.map(m => ({ role: m.role, content: m.content }));
