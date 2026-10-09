@@ -72,10 +72,10 @@ export function requireLogin() {
       <div class="login-card">
         <img src="assets/logo-violet.png" alt="DermaGen" class="login-logo">
         <h1>${first ? 'Bienvenue dans l’ERP DermaGen' : 'Connexion'}</h1>
-        <p class="muted">${first ? 'Aucun compte n’existe encore. Créez le compte administrateur pour commencer.' : 'Entrez vos identifiants pour accéder à votre espace.'}</p>
+        ${first ? '' : '<p class="muted">Entrez vos identifiants pour accéder à votre espace.</p>'}
         <form data-login novalidate>
           ${first ? `
-            <label>Votre nom<input name="name" autocomplete="name" placeholder="ex. Maya Lounici" required></label>
+            <label>Votre nom<input name="name" autocomplete="name" required></label>
             <label>Courriel<input name="email" type="email" autocomplete="username" placeholder="vous@dermagen.ca" required></label>
             <label>Mot de passe<input name="password" type="password" autocomplete="new-password" minlength="6" required></label>
             <label>Confirmer le mot de passe<input name="confirm" type="password" autocomplete="new-password" minlength="6" required></label>
