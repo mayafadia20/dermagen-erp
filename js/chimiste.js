@@ -59,11 +59,17 @@ export function buildContext(formulationId) {
     const comp = (f.lines || []).map(l => { const i = db.get('ingredients', l.ingredientId); return `${l.phase || '?'}:${i ? i.name : '?'} ${num(l.pct, 2)}%`; }).join(', ');
     lines.push(`- ${f.code} — ${f.name} v${f.version || 1} (${f.status}, lot de référence ${num(f.batchSize, 1)} g, total ${num(total, 2)} %) : ${comp}`);
   }
+  const recipes = db.all('recipes').slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+  if (recipes.length) {
+    lines.push('', `## Fiches théoriques de la gamme (cahier de charge, ${recipes.length})`);
+    for (const r of recipes) { const comp = (r.lines || []).map(([k, p]) => `${k} ${p}%`).join(', '); lines.push(`- ${r.name} (${r.phase === 'T' ? 'phase T' : 'phase N'}, ${r.bottle}) : ${comp}, eau qsp 100. ${r.usage || ''} ${r.warning ? 'Attention : ' + r.warning : ''}`); }
+  }
   const f = formulationId ? db.get('formulations', formulationId) : null;
   if (f) {
     lines.push('', `## Formulation sélectionnée pour cette question : ${f.code} — ${f.name} v${f.version || 1}`);
     lines.push(`Statut : ${f.status} · Type : ${f.productType || '—'} · Date : ${f.date || '—'} · Lot de référence : ${num(f.batchSize, 1)} g`);
     if (f.parentCode) lines.push(`Version précédente : ${f.parentCode}`);
+    if (f.recipeId && db.get('recipes', f.recipeId)) lines.push(`Fiche théorique de référence : ${db.get('recipes', f.recipeId).name}`);
     if (f.objective) lines.push(`Objectif : ${f.objective}`);
     lines.push('Composition :', 'Phase | Ingrédient | % | Quantité pour le lot | Rôle | Stock restant');
     for (const l of f.lines || []) { const i = db.get('ingredients', l.ingredientId); lines.push(`${l.phase || '?'} | ${i ? i.name : 'ingrédient supprimé'} | ${num(l.pct, 3)} | ${num((Number(f.batchSize) || 100) * l.pct / 100, 3)} g | ${l.role || ''} | ${i ? fmtQty(i) : '—'}`); }

@@ -22,7 +22,7 @@ const NAV = [
   { id: 'dashboard', label: 'Tableau de bord', icon: '◫' },
   { group: 'Laboratoire' },
   { id: 'ingredients', label: 'Inventaire des ingrédients', icon: '⚗' },
-  { id: 'formulations', label: 'Formulations R&D', icon: '✦' },
+  { id: 'formulations', label: 'Formulations', icon: '✦' },
   { id: 'chat', label: 'Assistante chimiste', icon: '⚗' },
   { group: 'Approvisionnement' },
   { id: 'suppliers', label: 'Fournisseurs', icon: '⌂' },

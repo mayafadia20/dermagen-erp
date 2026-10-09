@@ -4,6 +4,7 @@ import { esc, money, num, dateFmt, today, isoWeek, toast, badge, openModal, conf
 import { recordMovement } from './ingredients.js';
 import { importEssais, ESSAIS_TAG } from '../essais.js';
 import { currentUser } from '../auth.js';
+import { ensureRecipes, recipeLines, PHASE_LABEL } from '../recettes.js';
 
 export const STATUSES = ['En développement', 'En test', 'Validée', 'Abandonnée'];
 const STATUS_KIND = { 'En développement': 'blue', 'En test': 'amber', 'Validée': 'green', 'Abandonnée': 'grey' };
@@ -42,13 +43,15 @@ function lineRow(l = {}, ingredients) {
   </tr>`;
 }
 
-export function openFormulationForm(existing, onDone, { duplicateFrom } = {}) {
+export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecipe } = {}) {
   const s = db.settings();
+  const recipes = db.all('recipes').slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+  const fromR = fromRecipe ? { code: nextCode(today()), date: today(), version: db.all('formulations').filter(x => x.recipeId === fromRecipe.id).length + 1, status: STATUSES[0], productType: 'Traitement lissant', batchSize: 100, recipeId: fromRecipe.id, name: fromRecipe.name, objective: fromRecipe.description || '', lines: recipeLines(fromRecipe).map(l => ({ phase: l.phase, ingredientId: l.ingredientId, pct: l.pct, role: l.role })) } : null;
   const ingredients = db.all('ingredients').slice().sort((a, b) => a.name.localeCompare(b.name));
   const base = duplicateFrom ? { ...duplicateFrom, id: undefined, code: nextCode(today()), date: today(), version: (Number(duplicateFrom.version) || 1) + 1, status: 'En développement', parentCode: duplicateFrom.code, result: '', notes: '' } : null;
-  const f = base || existing || { code: nextCode(today()), date: today(), version: 1, status: STATUSES[0], productType: s.productTypes[0], batchSize: 100, lines: [{ phase: 'A' }, { phase: 'A' }, { phase: 'B' }] };
+  const f = base || fromR || existing || { code: nextCode(today()), date: today(), version: 1, status: STATUSES[0], productType: s.productTypes[0], batchSize: 100, lines: [{ phase: 'A' }, { phase: 'A' }, { phase: 'B' }] };
   const m = openModal({
-    title: base ? `Nouvelle version de ${duplicateFrom.code}` : existing ? 'Modifier la formulation' : 'Nouvelle formulation', wide: true,
+    title: fromR ? `Nouvelle formulation — ${fromRecipe.name}` : base ? `Nouvelle version de ${duplicateFrom.code}` : existing ? 'Modifier la formulation' : 'Nouvelle formulation', wide: true,
     body: `<div class="form-grid">
       ${field({ label: 'Code', name: 'code', value: f.code, required: true, cols: 1 })}
       ${field({ label: 'Nom de la formulation', name: 'name', value: f.name, required: true, cols: 2, placeholder: 'ex. Masque réparateur kératine v2' })}
@@ -57,6 +60,7 @@ export function openFormulationForm(existing, onDone, { duplicateFrom } = {}) {
       ${field({ label: 'Type de produit', name: 'productType', type: 'select', options: s.productTypes, value: f.productType, cols: 1 })}
       ${field({ label: 'Statut', name: 'status', type: 'select', options: STATUSES, value: f.status, cols: 1 })}
       ${field({ label: 'Taille du lot de référence (g)', name: 'batchSize', type: 'number', step: '1', min: 1, value: f.batchSize, cols: 1 })}
+      ${field({ label: 'Fiche théorique (cahier de charge)', name: 'recipeId', type: 'select', options: [['', '— Aucune —'], ...recipes.map(r => [r.id, r.name])], value: f.recipeId || '', cols: 4, help: fromR ? 'Les ingrédients et pourcentages ci-dessous sont repris de la fiche : ajuste-les ou ajoute des lignes.' : '' })}
       ${field({ label: 'Objectif / hypothèse de recherche', name: 'objective', type: 'textarea', rows: 2, value: f.objective, cols: 4, placeholder: 'ex. Améliorer le lissage sans formaldéhyde sur cheveux poreux' })}
       <div class="form-section">Composition (total doit faire 100 %)</div>
       <div class="lines">
@@ -64,14 +68,14 @@ export function openFormulationForm(existing, onDone, { duplicateFrom } = {}) {
         <tbody data-lines>${(f.lines || []).map(l => lineRow(l, ingredients)).join('')}</tbody></table>
         <div class="lines-foot"><button type="button" class="btn sm" data-add-line>+ Ajouter une ligne</button><span>Total : <b data-total-pct>0</b> % · Coût du lot : <b data-total-cost>0</b> · <span data-per100></span></span></div>
       </div>
-      <div class="form-section">Mode opératoire & observations</div>
+      <div class="form-section">Mode opératoire, observations et résultats</div>
       ${field({ label: 'Mode opératoire (étapes de fabrication)', name: 'procedure', type: 'textarea', rows: 4, value: f.procedure, cols: 4, placeholder: 'Phase A : chauffer à 75 °C… Phase B : …' })}
       ${field({ label: 'pH', name: 'ph', value: f.ph, cols: 1 })}
       ${field({ label: 'Viscosité / texture', name: 'viscosity', value: f.viscosity, cols: 1 })}
       ${field({ label: 'Aspect / odeur', name: 'aspect', value: f.aspect, cols: 1 })}
       ${field({ label: 'Stabilité', name: 'stability', value: f.stability, cols: 1, placeholder: 'ex. Stable 4 sem. à 40 °C' })}
       ${field({ label: 'Résultats des tests (cheveux, salon, panel)', name: 'result', type: 'textarea', rows: 3, value: f.result, cols: 4 })}
-      ${field({ label: 'Notes / prochaines étapes', name: 'notes', type: 'textarea', rows: 2, value: f.notes, cols: 4 })}
+      ${field({ label: 'Commentaires pour la prochaine fois', name: 'notes', type: 'textarea', rows: 2, value: f.notes, cols: 4, placeholder: 'ex. Réduire le BTMS-50 à 3 %, mesurer le pH à froid, lancer le test 40 °C' })}
       ${field({ label: 'Formulateur·rice', name: 'author', value: f.author || (existing ? '' : currentUser()?.name || ''), cols: 2 })}
     </div>`,
     submitLabel: existing ? 'Enregistrer' : 'Créer la formulation',
@@ -224,7 +228,7 @@ function renderDetail(el, ctx, f) {
   const lines = (f.lines || []).slice().sort((a, b) => (a.phase || '').localeCompare(b.phase || ''));
   const versions = db.all('formulations').filter(x => x.id !== f.id && (x.parentCode === f.code || f.parentCode === x.code || (f.parentCode && x.parentCode === f.parentCode)));
   el.innerHTML = `
-    <a href="#/formulations" class="back">← Retour aux formulations</a>
+    <a href="${f.recipeId && db.get('recipes', f.recipeId) ? '#/formulations/fiche-' + f.recipeId : '#/formulations'}" class="back">← ${f.recipeId && db.get('recipes', f.recipeId) ? 'Retour à la fiche ' + esc(db.get('recipes', f.recipeId).name) : 'Retour aux formulations'}</a>
     <div class="card">
       <div class="page-head">
         <div><h2>${esc(f.name)} ${badge(f.status, STATUS_KIND[f.status] || 'grey')}</h2>
@@ -237,6 +241,7 @@ function renderDetail(el, ctx, f) {
           <button class="btn danger" data-del>Supprimer</button>
         </div>
       </div>
+      ${recipeLinkHtml(f) ? `<div class="info"><b>Fiche théorique :</b> ${recipeLinkHtml(f)}</div>` : ''}
       ${f.objective ? `<div class="info"><b>Objectif :</b> ${esc(f.objective)}</div>` : ''}
       ${Math.abs(pct - 100) > 0.01 ? `<div class="warnbox">La composition totalise ${num(pct, 3)} % au lieu de 100 %.</div>` : ''}
       <div class="stats">
@@ -262,7 +267,7 @@ function renderDetail(el, ctx, f) {
       <div class="card">
         <h3 style="margin-bottom:10px">Mode opératoire</h3>
         <p style="white-space:pre-wrap">${esc(f.procedure || 'Non renseigné.')}</p>
-        <h3 style="margin:16px 0 10px">Observations</h3>
+        <h3 style="margin:16px 0 10px">Observations et résultats</h3>
         <dl class="detail-grid">
           <div><dt>pH</dt><dd>${esc(f.ph || '—')}</dd></div>
           <div><dt>Viscosité / texture</dt><dd>${esc(f.viscosity || '—')}</dd></div>
@@ -271,7 +276,7 @@ function renderDetail(el, ctx, f) {
         </dl>
         <h3 style="margin:16px 0 8px">Résultats des tests</h3>
         <p style="white-space:pre-wrap">${esc(f.result || 'Aucun résultat consigné.')}</p>
-        <h3 style="margin:16px 0 8px">Notes / prochaines étapes</h3>
+        <h3 style="margin:16px 0 8px">Commentaires pour la prochaine fois</h3>
         <p style="white-space:pre-wrap">${esc(f.notes || '—')}</p>
       </div>
       <div class="card">
@@ -305,10 +310,106 @@ function renderDetail(el, ctx, f) {
   });
 }
 
+
+// ---------- Fiches théoriques (cahier de charge) ----------
+function recipeLinkHtml(f) {
+  const r = f.recipeId ? db.get('recipes', f.recipeId) : null;
+  return r ? `<a href="#/formulations/fiche-${r.id}">${esc(r.name)}</a>` : '';
+}
+
+function renderRecipes(el, ctx) {
+  ensureRecipes();
+  const recipes = db.all('recipes').slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+  const forms = db.all('formulations');
+  const byRecipe = (id) => forms.filter(f => f.recipeId === id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const orphans = forms.filter(f => !f.recipeId).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const card = (r) => {
+    const list = byRecipe(r.id); const last = list[0];
+    return `<a href="#/formulations/fiche-${r.id}" class="recipe-card phase-${r.phase}">
+      <div class="recipe-tags"><span class="badge ${r.phase === 'T' ? 'purple' : 'green'}">${esc(r.bottle)}</span><span class="badge">${esc(r.variant)}</span></div>
+      <div class="recipe-name">${esc(r.name)}</div>
+      <div class="recipe-desc">${esc((r.description || '').slice(0, 120))}${(r.description || '').length > 120 ? '…' : ''}</div>
+      <div class="recipe-foot"><span>${list.length} formulation${list.length > 1 ? 's' : ''} réelle${list.length > 1 ? 's' : ''}</span>${last ? badge(last.status, STATUS_KIND[last.status] || 'grey') : '<span class="muted">aucun essai</span>'}</div>
+    </a>`;
+  };
+  el.innerHTML = `
+    <div class="page-head">
+      <div><h2>Fiches théoriques de la gamme</h2><div class="subtitle">Cahier de charge DermaGen v1.0 · Choisis une fiche pour voir la formule de référence et créer une formulation réelle à partir d’elle.</div></div>
+      <div class="actions">
+        ${forms.some(f => f.importTag === ESSAIS_TAG) ? '' : '<button class="btn" data-import-essais title="Document « Calcul et quantités » : Booster Activation, Phase Transformante T1 à T4, Booster lipidique">Importer les essais du document</button>'}
+        <button class="btn primary" data-new>+ Formulation libre</button>
+      </div>
+    </div>
+    ${['T', 'N'].map(ph => `<div class="week-head"><h3>${esc(PHASE_LABEL[ph])}</h3></div><div class="recipe-grid">${recipes.filter(r => r.phase === ph).map(card).join('')}</div>`).join('')}
+    ${orphans.length ? `<div class="card" style="margin-top:22px">
+      <div class="card-head"><h3>Formulations sans fiche théorique</h3><span class="muted">${orphans.length} essai(s) · rattache-les à une fiche via « Modifier »</span></div>
+      ${formTable(orphans)}
+    </div>` : ''}`;
+  el.querySelector('[data-import-essais]')?.addEventListener('click', () => importEssais(ctx.navigate));
+  el.querySelector('[data-new]').addEventListener('click', () => {
+    if (!db.all('ingredients').length) return toast('Créez d’abord des ingrédients dans l’inventaire.', 'warn');
+    openFormulationForm(null, id => ctx.navigate('formulations', id));
+  });
+  el.addEventListener('click', e => { const tr = e.target.closest('tr[data-open]'); if (tr) ctx.navigate('formulations', tr.dataset.open); });
+}
+
+function formTable(list) {
+  return table({
+    columns: [
+      { label: 'Code', render: r => `<span class="strong">${esc(r.code)}</span><div class="muted">v${r.version || 1}${r.parentCode ? ' ← ' + esc(r.parentCode) : ''}</div>` },
+      { label: 'Nom', render: r => `<div class="strong">${esc(r.name)}</div><div class="muted">${esc(r.author || '')}</div>` },
+      { label: 'Date', render: r => dateFmt(r.date) },
+      { label: 'Total %', align: 'num', render: r => { const p = totalPct(r); return `<span class="${Math.abs(p - 100) < 0.01 ? 'pct-ok' : 'pct-bad'}">${num(p, 2)} %</span>`; } },
+      { label: 'Résultat', render: r => `<span class="muted">${esc((r.result || '').slice(0, 90))}${(r.result || '').length > 90 ? '…' : ''}</span>` },
+      { label: 'Prochaine fois', render: r => `<span class="muted">${esc((r.notes || '').slice(0, 90))}${(r.notes || '').length > 90 ? '…' : ''}</span>` },
+      { label: 'Statut', render: r => badge(r.status, STATUS_KIND[r.status] || 'grey') },
+    ], rows: list, rowAttrs: r => `class="clickable" data-open="${r.id}"`, empty: 'Aucune formulation réelle pour cette fiche. Clique sur « Créer une formulation » pour commencer.'
+  });
+}
+
+function renderRecipe(el, ctx, r) {
+  const lines = recipeLines(r);
+  const list = db.all('formulations').filter(f => f.recipeId === r.id).sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+  el.innerHTML = `
+    <a href="#/formulations" class="back">← Toutes les fiches</a>
+    <div class="card">
+      <div class="page-head">
+        <div><div class="recipe-tags" style="margin-bottom:6px"><span class="badge ${r.phase === 'T' ? 'purple' : 'green'}">${esc(PHASE_LABEL[r.phase] || r.phase)}</span><span class="badge">${esc(r.bottle)} · ${esc(r.variant)}</span></div>
+          <h2>${esc(r.name)}</h2><div class="subtitle">Fiche théorique · cahier de charge v1.0 · ${list.length} formulation${list.length > 1 ? 's' : ''} réelle${list.length > 1 ? 's' : ''}</div></div>
+        <div class="actions"><button class="btn primary" data-create>+ Créer une formulation à partir de cette fiche</button></div>
+      </div>
+      ${r.description ? `<p style="margin:0 0 10px">${esc(r.description)}</p>` : ''}
+      ${r.usage ? `<div class="info"><b>Utilisation :</b> ${esc(r.usage)}</div>` : ''}
+      ${r.warning ? `<div class="warnbox">${esc(r.warning)}</div>` : ''}
+      <h3 style="margin-bottom:10px">Formule théorique (pour 100 g)</h3>
+      ${table({
+        columns: [
+          { label: 'Phase', render: l => badge(l.phase, 'purple') },
+          { label: 'Ingrédient', render: l => { const i = db.get('ingredients', l.ingredientId); return i ? `<a href="#/ingredients/${i.id}">${esc(i.name)}</a>` : '—'; } },
+          { label: 'INCI', render: l => `<span class="muted">${esc(db.get('ingredients', l.ingredientId)?.inci || '')}</span>` },
+          { label: 'Rôle', key: 'role' },
+          { label: '%', align: 'num', render: l => num(l.pct, 2) + ' %' },
+          { label: 'Quantité pour 100 g', align: 'num', render: l => num(l.pct, 2) + ' g' },
+          { label: 'Stock', align: 'num', render: l => { const i = db.get('ingredients', l.ingredientId); if (!i) return '—'; const ok = (Number(i.stock) || 0) > 0; return `<span class="${ok ? '' : 'pct-bad'}">${num(i.stock, 3)} ${esc(i.unit)}</span>`; } },
+        ], rows: lines
+      })}
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Formulations réelles</h3><span class="muted">Chaque essai garde ses observations, ses résultats et les commentaires pour la prochaine fois.</span></div>
+      ${formTable(list)}
+    </div>`;
+  const create = () => openFormulationForm(null, id => ctx.navigate('formulations', id), { fromRecipe: r });
+  el.querySelector('[data-create]').addEventListener('click', create);
+  el.addEventListener('click', e => { const tr = e.target.closest('tr[data-open]'); if (tr) ctx.navigate('formulations', tr.dataset.open); });
+}
+
 export default {
-  title: 'Formulations R&D',
+  title: 'Formulations',
   render(el, ctx) {
+    ensureRecipes();
+    if (ctx.id && ctx.id.startsWith('fiche-')) { const r = db.get('recipes', ctx.id.slice(6)); if (r) return renderRecipe(el, ctx, r); }
+    if (ctx.id === 'liste') return renderList(el, ctx);
     if (ctx.id) { const f = db.get('formulations', ctx.id); if (f) return renderDetail(el, ctx, f); }
-    renderList(el, ctx);
+    renderRecipes(el, ctx);
   }
 };
