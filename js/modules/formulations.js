@@ -54,8 +54,12 @@ function stepsHtml(steps, { editable = false } = {}) {
 }
 
 // ---------- Éditeur ----------
-function lineRow(l = {}, ingredients) {
-  const opts = ['<option value="">— Choisir —</option>', ...ingredients.map(i => `<option value="${i.id}" data-cost="${costPerGram(i)}" ${i.id === l.ingredientId ? 'selected' : ''}>${esc(i.name)}${i.inci ? ' (' + esc(i.inci) + ')' : ''}</option>`)].join('');
+function lineRow(l = {}, ingredients, sheetIds = new Set()) {
+  const opt = (i) => `<option value="${i.id}" data-cost="${costPerGram(i)}" ${i.id === l.ingredientId ? 'selected' : ''}>${esc(i.name)}${i.inci ? ' (' + esc(i.inci) + ')' : ''}</option>`;
+  const inSheet = ingredients.filter(i => sheetIds.has(i.id)), others = ingredients.filter(i => !sheetIds.has(i.id));
+  const opts = ['<option value="">— Choisir —</option>',
+    ...(inSheet.length ? [`<optgroup label="Ingrédients de la fiche théorique">${inSheet.map(opt).join('')}</optgroup>`] : []),
+    `<optgroup label="${inSheet.length ? 'Tous les ingrédients de l’inventaire' : 'Ingrédients de l’inventaire'}">${others.map(opt).join('')}</optgroup>`].join('');
   return `<tr data-repeat-row>
     <td style="width:70px"><select name="phase">${PHASES.map(p => `<option ${p === (l.phase || 'A') ? 'selected' : ''}>${p}</option>`).join('')}</select></td>
     <td><select name="ingredientId">${opts}</select></td>
@@ -71,7 +75,9 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
   const s = db.settings();
   const recipes = db.all('recipes').slice().sort((a, b) => (a.order || 0) - (b.order || 0));
   const fromR = fromRecipe ? { code: nextCode(today()), date: today(), version: db.all('formulations').filter(x => x.recipeId === fromRecipe.id).length + 1, status: STATUSES[0], productType: 'Traitement lissant', batchSize: 100, recipeId: fromRecipe.id, name: fromRecipe.name, objective: fromRecipe.description || '', steps: (fromRecipe.steps || []).slice(), lines: recipeLines(fromRecipe).map(l => ({ phase: l.phase, ingredientId: l.ingredientId, pct: l.pct, role: l.role })) } : null;
-  const ingredients = db.all('ingredients').slice().sort((a, b) => a.name.localeCompare(b.name));
+  const ingredients = db.all('ingredients').filter(i => i.category !== 'Matériel de laboratoire').slice().sort((a, b) => a.name.localeCompare(b.name));
+  const sheet = fromRecipe || (existing?.recipeId ? db.get('recipes', existing.recipeId) : null) || (duplicateFrom?.recipeId ? db.get('recipes', duplicateFrom.recipeId) : null);
+  const sheetIds = new Set(sheet ? recipeLines(sheet).map(l => l.ingredientId) : []);
   const base = duplicateFrom ? { ...duplicateFrom, id: undefined, code: nextCode(today()), date: today(), version: (Number(duplicateFrom.version) || 1) + 1, status: 'En développement', parentCode: duplicateFrom.code, result: '', notes: '' } : null;
   const f = base || fromR || existing || { code: nextCode(today()), date: today(), version: 1, status: STATUSES[0], productType: s.productTypes[0], batchSize: 100, lines: [{ phase: 'A' }, { phase: 'A' }, { phase: 'B' }] };
   const m = openModal({
@@ -89,7 +95,7 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
       <div class="form-section">Composition (total doit faire 100 %)</div>
       <div class="lines">
         <table><thead><tr><th>Phase</th><th>Ingrédient</th><th>%</th><th>Quantité (g)</th><th class="num">Coût</th><th>Fonction</th><th></th></tr></thead>
-        <tbody data-lines>${(f.lines || []).map(l => lineRow(l, ingredients)).join('')}</tbody></table>
+        <tbody data-lines>${(f.lines || []).map(l => lineRow(l, ingredients, sheetIds)).join('')}</tbody></table>
         <div class="lines-foot"><button type="button" class="btn sm" data-add-line>+ Ajouter une ligne</button><span>Total : <b data-total-pct>0</b> % · Coût du lot : <b data-total-cost>0</b> · <span data-per100></span></span></div>
       </div>
       <div class="form-section">Mode opératoire, observations et résultats</div>
@@ -141,7 +147,7 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
   form.addEventListener('change', recalc);
   form.querySelector('[data-add-line]').addEventListener('click', () => {
     const last = tbody.querySelector('tr:last-child [name=phase]')?.value || 'A';
-    tbody.insertAdjacentHTML('beforeend', lineRow({ phase: last }, ingredients)); recalc();
+    tbody.insertAdjacentHTML('beforeend', lineRow({ phase: last }, ingredients, sheetIds)); recalc();
   });
   form.addEventListener('click', e => { const b = e.target.closest('[data-del-line]'); if (b) { b.closest('tr').remove(); recalc(); } });
   recalc();
