@@ -455,7 +455,9 @@ function formTable(list) {
   });
 }
 
+let refreshRecipeView = () => {};
 function renderRecipe(el, ctx, r) {
+  refreshRecipeView = () => { const fresh = db.get('recipes', r.id); if (!fresh) return; const sv = el.querySelector('[data-steps-view]'); if (sv) { r.steps = fresh.steps || []; sv.innerHTML = stepsHtml(r.steps, { editable: true }); } const list = db.all('formulations').filter(f => f.recipeId === r.id).sort((a, b) => (b.date || '').localeCompare(a.date || '')); const lt = el.querySelector('[data-real-list]'); if (lt) lt.innerHTML = formTable(list); };
   const lines = recipeLines(r);
   const list = db.all('formulations').filter(f => f.recipeId === r.id).sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
   el.innerHTML = `
@@ -492,14 +494,14 @@ function renderRecipe(el, ctx, r) {
       <div class="md reco-body" data-reco></div>
       <div class="reco-thread" data-thread>${(r.thread || []).map(m => threadBubble(m)).join('')}</div>
       <form class="reco-composer" data-reco-form>
-        <input name="q" placeholder="Pose une question sur cette fiche à l’assistante chimiste… (Entrée pour envoyer)" autocomplete="off">
+        <input name="q" placeholder="Pose une question, ou demande : « crée une formulation avec… », « écris les étapes… », « note les observations… »" autocomplete="off">
         <button type="submit" class="chat-send reco-send" title="Envoyer" aria-label="Envoyer">➤</button>
       </form>
       <div class="muted" style="font-size:12px;margin-top:10px">L’assistante voit la formule théorique, le mode opératoire, les formulations réelles rattachées et leurs observations. La discussion reste enregistrée sur cette fiche. Elle ne remplace ni les tests ni l’évaluation de sécurité.</div>
     </div>
     <div class="card">
       <div class="card-head"><h3>Formulations réelles</h3><span class="muted">Chaque essai garde ses observations, ses résultats et les commentaires pour la prochaine fois.</span></div>
-      ${formTable(list)}
+      <div data-real-list>${formTable(list)}</div>
     </div>`;
   loadRecommendation(r, el);
   el.querySelector('[data-reco-refresh]').addEventListener('click', () => loadRecommendation(r, el, { force: true }));
@@ -528,7 +530,8 @@ function renderRecipe(el, ctx, r) {
     const body = holder.querySelector('.msg-body');
     let full = '';
     try {
-      const res = await ask({ history: msgs.map(m => ({ role: m.role, content: m.content })), recipeId: r.id, skill: 'chimiste', onDelta: (_, acc) => { full = acc; body.innerHTML = renderMarkdown(acc); } });
+      const res = await ask({ history: msgs.map(m => ({ role: m.role, content: m.content })), recipeId: r.id, skill: 'chimiste', tools: true, onDelta: (_, acc) => { full = acc; body.innerHTML = renderMarkdown(acc); },
+        onAction: (a) => { if (a.ok && a.name !== 'enregistrer_observations') refreshRecipeView(); } });
       full = res.text || full; body.innerHTML = renderMarkdown(full);
     } catch (err) { body.innerHTML = `<div class="warnbox" style="margin:0">${esc(err.message || 'Erreur')}</div>`; full = ''; }
     finally {

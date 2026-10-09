@@ -11,6 +11,7 @@ const SUGGESTIONS = {
     'Quel pH viser pour le Booster lipidique et comment l’ajuster ?',
     'Comment éviter les grumeaux d’hydroxyethylcellulose ?',
     'Quels tests de stabilité lancer sur l’essai 4 et comment les noter ?',
+    'Crée une formulation « Sérum test » de 200 g : eau qsp, glycérine 3 %, panthénol 1 %, phénoxyéthanol 0,8 %, caprylyl glycol 0,5 %.',
   ],
   cosmetologue: [
     'À quel type de cheveu la Phase Transformante v4 convient-elle, et à qui la déconseiller ?',
@@ -51,7 +52,7 @@ export default {
         <section class="card chat-main">
           <div class="chat-head">
             <div class="chat-avatar">${sk.icon}</div>
-            <div class="topbar-text"><div class="strong">${esc(sk.label)}</div><div class="muted">${esc(sk.tagline)}</div></div>
+            <div class="topbar-text"><div class="strong">${esc(sk.label)}</div><div class="muted">${esc(sk.tagline)} Peut créer une formulation, écrire un mode opératoire et consigner des observations sur demande.</div></div>
             ${current ? '' : `<div class="skill-switch" role="tablist">${Object.values(SKILLS).map(s => `<button type="button" class="skill-tab ${s.id === sk.id ? 'on' : ''}" data-skill="${s.id}" role="tab">${s.icon} ${esc(s.label)}</button>`).join('')}</div>`}
             ${current ? '<button class="btn sm danger" data-del-chat>Supprimer</button>' : ''}
           </div>
@@ -143,12 +144,13 @@ async function respond(chatId, messages, formulationId, messagesEl, scroll, form
   let full = '';
   try {
     const history = messages.map(m => ({ role: m.role, content: m.content }));
-    const r = await ask({ history, formulationId, skill: sk.id, signal: streaming.signal,
+    const r = await ask({ history, formulationId, skill: sk.id, tools: true, signal: streaming.signal,
       onDelta: (_, acc) => { full = acc; body.innerHTML = renderMarkdown(acc); scroll(); },
       onEvent: (ev) => {
         if (ev.type === 'tool-input') setStatus(ev.name === 'web_fetch' ? `Lecture de la page ${ev.input?.url || ''}` : `Recherche web : « ${ev.input?.query || ''} »`);
         else if (ev.type === 'result') setStatus(ev.error ? `Recherche impossible (${ev.error})` : ev.name === 'web_fetch_tool_result' ? 'Page lue, rédaction en cours…' : `${ev.count} résultat(s), analyse en cours…`);
         else if (ev.type === 'continue') setStatus('Recherche approfondie, reprise…');
+        else if (ev.type === 'tool-call') setStatus({ creer_formulation: 'Création de la formulation…', definir_etapes: 'Écriture du mode opératoire…', enregistrer_observations: 'Enregistrement des observations…' }[ev.name] || 'Action dans l’ERP…');
       } });
     setStatus('');
     full = r.text || full;

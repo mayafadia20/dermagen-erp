@@ -14,6 +14,7 @@ import accelerators from './modules/accelerators.js';
 import chat from './modules/chat.js';
 import profile from './modules/profile.js';
 import { requireLogin, currentUser, firstName, initials, logout, installReadOnlyGuard, isAdmin } from './auth.js';
+import { assistantBusy } from './chimiste.js';
 
 const MODULES = { dashboard, ingredients, formulations, chat, suppliers, purchases, invoices, payments, passwords, accelerators, profile, settings };
 
@@ -107,6 +108,7 @@ async function boot() {
   db.on((col) => {
     if (col === 'chats' && current && current.view === 'chat') return;   // la discussion gère son propre affichage pendant une réponse
     if (col === 'recipes' && current && current.view === 'formulations' && (current.id || '').startsWith('fiche-')) return;   // la fiche mémorise sa recommandation sans se re-rendre
+    if (assistantBusy() && current && (current.view === 'chat' || (current.view === 'formulations' && (current.id || '').startsWith('fiche-')))) return;   // actions de l'assistante : la vue se met à jour elle-même
     if (document.body.classList.contains('modal-open')) dirty = true; else render();
   });
   document.addEventListener('modal-closed', () => { if (dirty && !document.body.classList.contains('modal-open')) { dirty = false; render(); } });

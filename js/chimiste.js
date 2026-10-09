@@ -3,6 +3,7 @@
 // celle enregistrée dans les Paramètres et ne quitte ce navigateur que vers api.anthropic.com.
 import { db } from './store.js';
 import { num, dateFmt } from './ui.js';
+import { TOOL_DEFS, TOOLS_NOTE, runTool } from './outils.js';
 
 export const MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (recommandé)'],
@@ -113,6 +114,7 @@ const WEB_TOOLS = [
 ];
 const WEB_NOTE = `Recherche web activée : tu peux chercher sur le web et lire des pages. Utilise-la pour vérifier en direct les seuils réglementaires (Liste critique de Santé Canada, étiquetage, déclaration), les fiches techniques et fiches de données de sécurité des fournisseurs, et les avis récents, en privilégiant les sources officielles listées dans tes références (canada.ca, ec.europa.eu, cir-safety.org, fda.gov, makingcosmetics.com). Cherche seulement quand la question l'exige ; une question de procédé ou de raisonnement se répond sans recherche. Cite tes sources en fin de réponse sous la forme « Sources : » suivie de liens Markdown [titre](url).`;
 const MAX_CONTINUATIONS = 3;
+const MAX_TOOL_TURNS = 6;
 
 async function postStream(key, body, signal) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -146,6 +148,7 @@ async function readStream(res, { onDelta, onEvent, textSoFar }) {
       const b = JSON.parse(JSON.stringify(ev.content_block)); blocks[ev.index] = b; partial[ev.index] = '';
       if (b.type === 'text') { b.text = b.text || ''; b.citations = b.citations || []; }
       if (b.type === 'server_tool_use') { onEvent && onEvent({ type: 'tool', name: b.name }); }
+      if (b.type === 'tool_use') { b.input = b.input || {}; onEvent && onEvent({ type: 'tool-call', name: b.name }); }
       if (b.type === 'web_search_tool_result' || b.type === 'web_fetch_tool_result') {
         const errorCode = !Array.isArray(b.content) && b.content?.error_code;
         onEvent && onEvent({ type: 'result', name: b.type, count: Array.isArray(b.content) ? b.content.length : 0, error: errorCode || null });
@@ -159,9 +162,9 @@ async function readStream(res, { onDelta, onEvent, textSoFar }) {
       else if (d.type === 'signature_delta') { b.signature = d.signature; }
     } else if (ev.type === 'content_block_stop') {
       const b = blocks[ev.index];
-      if (b?.type === 'server_tool_use') {
-        try { b.input = partial[ev.index] ? JSON.parse(partial[ev.index]) : (b.input || {}); } catch (_) { b.input = b.input || {}; }
-        onEvent && onEvent({ type: 'tool-input', name: b.name, input: b.input });
+      if (b?.type === 'server_tool_use' || b?.type === 'tool_use') {
+        try { b.input = partial[ev.index] ? JSON.parse(partial[ev.index]) : (b.input || {}); } catch (_) { b.invalidInput = true; b.input = {}; }
+        if (b.type === 'server_tool_use') onEvent && onEvent({ type: 'tool-input', name: b.name, input: b.input });
       }
     } else if (ev.type === 'message_delta') { stopReason = ev.delta?.stop_reason || stopReason; stopDetails = ev.delta?.stop_details || stopDetails; usage = ev.usage || usage; }
     else if (ev.type === 'error') throw new Error(ev.error?.message || 'Erreur de flux');
@@ -188,7 +191,11 @@ async function readStream(res, { onDelta, onEvent, textSoFar }) {
  * history : [{ role: 'user' | 'assistant', content: string }]
  * Retourne { text, sources, stopReason, usage }.
  */
-export async function ask({ history, formulationId, recipeId, skill = DEFAULT_SKILL, web, onDelta, onEvent, signal }) {
+let busy = 0;
+/** Vrai pendant qu'une réponse de l'assistante (et ses actions) est en cours. */
+export const assistantBusy = () => busy > 0;
+
+export async function ask({ history, formulationId, recipeId, skill = DEFAULT_SKILL, web, tools = false, onDelta, onEvent, onAction, signal }) {
   const cfg = apiConfig(); const { key, model, effort } = cfg;
   if (web === undefined) web = cfg.web;
   if (!key) throw new Error('Aucune clé API enregistrée. Ajoutez-la dans Paramètres → Assistante chimiste.');
@@ -198,27 +205,47 @@ export async function ask({ history, formulationId, recipeId, skill = DEFAULT_SK
     { type: 'text', text: buildContext(formulationId, recipeId) },
   ];
   if (web) system.push({ type: 'text', text: WEB_NOTE });
+  if (tools) system.push({ type: 'text', text: TOOLS_NOTE + (recipeId ? ` Fiche théorique en cours : identifiant ${recipeId}.` : '') + (formulationId ? ` Formulation en cours : ${db.get('formulations', formulationId)?.code || formulationId}.` : '') });
   const baseMessages = history.map(m => ({ role: m.role, content: m.content }));
   const body = { model, max_tokens: 8000, stream: true, thinking: { type: 'adaptive' }, output_config: { effort }, fallbacks: 'default', system, messages: baseMessages };
-  if (web) body.tools = WEB_TOOLS;
+  const toolList = [...(web ? WEB_TOOLS : []), ...(tools ? TOOL_DEFS : [])];
+  if (toolList.length) body.tools = toolList;
 
-  let text = '', assistantBlocks = [], stopReason = null, stopDetails = null, usage = null;
-  const sources = new Map();
+  let text = '', pending = [], extra = [], stopReason = null, stopDetails = null, usage = null;
+  const sources = new Map(); const actions = [];
   const collect = (ev) => { if (ev.type === 'citation' && ev.citation?.url) sources.set(ev.citation.url, ev.citation.title || ev.citation.url); onEvent && onEvent(ev); };
-  for (let turn = 0; turn <= MAX_CONTINUATIONS; turn++) {
-    const messages = assistantBlocks.length ? [...baseMessages, { role: 'assistant', content: assistantBlocks }] : baseMessages;
+  let continuations = 0, toolTurns = 0;
+  busy++;
+  try {
+  while (true) {
+    const messages = [...baseMessages, ...extra, ...(pending.length ? [{ role: 'assistant', content: pending }] : [])];
     const res = await postStream(key, { ...body, messages }, signal);
     const r = await readStream(res, { onDelta, onEvent: collect, textSoFar: text });
-    text = r.text; assistantBlocks = [...assistantBlocks, ...r.blocks]; stopReason = r.stopReason; stopDetails = r.stopDetails; usage = r.usage || usage;
-    if (stopReason !== 'pause_turn') break;
-    onEvent && onEvent({ type: 'continue', turn: turn + 1 });
+    text = r.text; pending = [...pending, ...r.blocks]; stopReason = r.stopReason; stopDetails = r.stopDetails; usage = r.usage || usage;
+    if (stopReason === 'pause_turn' && continuations < MAX_CONTINUATIONS) { continuations++; onEvent && onEvent({ type: 'continue', turn: continuations }); continue; }
+    if (stopReason === 'tool_use' && tools && toolTurns < MAX_TOOL_TURNS) {
+      toolTurns++;
+      const calls = pending.filter(b => b.type === 'tool_use');
+      const results = calls.map(c => {
+        const out = c.invalidInput ? { ok: false, message: 'Paramètres illisibles (JSON invalide) : réessaie.' } : runTool(c.name, c.input, { recipeId, formulationId });
+        actions.push({ name: c.name, ...out });
+        onAction && onAction({ name: c.name, ...out });
+        return { type: 'tool_result', tool_use_id: c.id, content: out.message || '', is_error: !out.ok };
+      });
+      extra = [...extra, { role: 'assistant', content: pending }, { role: 'user', content: results }];
+      pending = [];
+      continue;
+    }
+    break;
   }
+  } finally { busy--; }
   if (stopReason === 'refusal' && !text) text = 'La réponse a été refusée par les filtres de sécurité' + (stopDetails?.category ? ` (catégorie : ${stopDetails.category})` : '') + '. Reformule la question en précisant le contexte cosmétique.';
   if (stopReason === 'max_tokens') text += '\n\n*(réponse tronquée : limite de longueur atteinte)*';
   if (stopReason === 'pause_turn') text += '\n\n*(recherche interrompue après plusieurs reprises : reformule ou précise la question)*';
   const src = [...sources.entries()];
   if (src.length && !/\n\s*\**Sources\**\s*:/i.test(text)) text += '\n\nSources : ' + src.map(([u, t]) => `[${t.replace(/[\[\]]/g, '')}](${u})`).join(' · ');
-  return { text, sources: src, stopReason, usage };
+  if (actions.length) text += '\n\n' + actions.map(a => `${a.ok ? '✔' : '✖'} ${a.message}${a.link ? ` [Ouvrir](${a.link})` : ''}`).join('\n');
+  return { text, sources: src, actions, stopReason, usage };
 }
 
 // ---------- Rendu Markdown minimal et sûr (échappement avant mise en forme) ----------
