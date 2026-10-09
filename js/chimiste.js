@@ -10,19 +10,28 @@ export const MODELS = [
 ];
 export const EFFORTS = [['low', 'Rapide'], ['medium', 'Équilibré'], ['high', 'Approfondi']];
 
-let skillText = null;
-export async function loadSkill() {
-  if (skillText) return skillText;
-  try {
-    const r = await fetch('skills/chimiste-cosmetique/SKILL.md', { cache: 'no-cache' });
-    if (!r.ok) throw new Error(r.status);
-    skillText = (await r.text()).replace(/^---[\s\S]*?---\s*/, '');
-  } catch (e) {
-    console.warn('Skill introuvable, repli sur la version intégrée', e);
-    skillText = FALLBACK_SKILL;
-  }
-  return skillText;
+export const SKILLS = {
+  chimiste: { id: 'chimiste', file: 'skills/chimiste-cosmetique/SKILL.md', label: 'Chimiste cosmétique', icon: '⚗', tagline: 'Formulation, procédé, pH, conservation, stabilité, faisabilité selon le stock.' },
+  cosmetologue: { id: 'cosmetologue', file: 'skills/cosmetologue/SKILL.md', label: 'Cosmétologue', icon: '✿', tagline: 'Science du cheveu, efficacité et tolérance, protocoles en salon, allégations et étiquetage au Canada.' },
+};
+export const DEFAULT_SKILL = 'chimiste';
+export const skillInfo = (id) => SKILLS[id] || SKILLS[DEFAULT_SKILL];
+
+const cache = {};
+async function fetchText(path) { const r = await fetch(path, { cache: 'no-cache' }); if (!r.ok) throw new Error(r.status); return r.text(); }
+export async function loadSkill(id = DEFAULT_SKILL) {
+  const info = skillInfo(id);
+  if (cache[info.id]) return cache[info.id];
+  let text;
+  try { text = (await fetchText(info.file)).replace(/^---[\s\S]*?---\s*/, ''); }
+  catch (e) { console.warn('Skill introuvable, repli sur la version intégrée', info.file, e); text = info.id === 'cosmetologue' ? FALLBACK_COSMETO : FALLBACK_SKILL; }
+  try { cache.refs = cache.refs || await fetchText('skills/references.md'); text += '\n\n' + cache.refs; } catch (_) {}
+  cache[info.id] = text;
+  return text;
 }
+
+const FALLBACK_COSMETO = `# Rôle
+Tu es un·e cosmétologue sénior (science du cheveu et du cuir chevelu, efficacité et tolérance, protocoles de salon, allégations et étiquetage des cosmétiques au Canada) qui accompagne la formulatrice de DermaGen (Montréal). Réponds en français, de façon concise. Utilise le bloc « Contexte ERP » fourni, n'invente ni étude ni règle, et rappelle que les allégations doivent rester cosmétiques au sens de la Loi sur les aliments et drogues.`;
 
 const FALLBACK_SKILL = `# Rôle
 Tu es un·e chimiste cosmétique sénior spécialisé·e en soins capillaires qui accompagne la formulatrice de DermaGen (Montréal). Réponds en français, de façon concise et rigoureuse. Utilise le bloc « Contexte ERP » fourni (inventaire, matériel, formulations) pour vérifier la faisabilité, signale ce qui manque, et n'invente jamais de données. Avant un essai, vérifie : objectif, composition à 100 % et plages d'usage, compatibilité des charges, disponibilité en stock, procédé et températures, pH cible, sécurité au laboratoire, documentation et tests de stabilité. Rappelle que tu ne remplaces ni l'évaluation de sécurité ni les tests de conservation.`;
@@ -77,10 +86,10 @@ export function apiConfig() {
  * history : [{ role: 'user' | 'assistant', content: string }]
  * Retourne { text, stopReason, usage }.
  */
-export async function ask({ history, formulationId, onDelta, signal }) {
+export async function ask({ history, formulationId, skill = DEFAULT_SKILL, onDelta, signal }) {
   const { key, model, effort } = apiConfig();
   if (!key) throw new Error('Aucune clé API enregistrée. Ajoutez-la dans Paramètres → Assistante chimiste.');
-  const skill = await loadSkill();
+  const skillText = await loadSkill(skill);
   const body = {
     model,
     max_tokens: 8000,
@@ -89,7 +98,7 @@ export async function ask({ history, formulationId, onDelta, signal }) {
     output_config: { effort },
     fallbacks: 'default',
     system: [
-      { type: 'text', text: skill, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: skillText, cache_control: { type: 'ephemeral' } },
       { type: 'text', text: buildContext(formulationId) },
     ],
     messages: history.map(m => ({ role: m.role, content: m.content })),
