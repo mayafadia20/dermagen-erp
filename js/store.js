@@ -18,7 +18,7 @@ export const DEFAULT_SETTINGS = {
   tps: 5,
   tvq: 9.975,
   lowStockDays: 60,
-  categories: ['Actif', 'Agent conditionneur', 'Tensioactif', 'Émollient', 'Huile', 'Beurre', 'Humectant', 'Épaississant', 'Conservateur', 'Parfum', 'Ajusteur de pH', 'Solvant', 'Emballage', 'Autre'],
+  categories: ['Actif', 'Agent conditionneur', 'Tensioactif', 'Émollient', 'Huile', 'Beurre', 'Humectant', 'Épaississant', 'Conservateur', 'Parfum', 'Ajusteur de pH', 'Solvant', 'Emballage', 'Matériel de laboratoire', 'Autre'],
   productTypes: ['Shampoing', 'Revitalisant', 'Masque', 'Traitement lissant', 'Sérum', 'Huile capillaire', 'Poudre de soin', 'Capsule', 'Autre'],
   units: ['g', 'kg', 'ml', 'L', 'unité'],
   paymentMethods: ['Virement bancaire', 'Carte de crédit', 'Interac', 'Chèque', 'PayPal', 'Comptant'],

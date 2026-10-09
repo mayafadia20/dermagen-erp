@@ -1,5 +1,6 @@
 // Inventaire des ingrédients : fiches, stock, mouvements, alertes.
 import { db } from '../store.js';
+import { importInventaire, inventaireDone } from '../inventaire.js';
 import { esc, money, num, dateFmt, today, daysUntil, toast, badge, openModal, confirmDialog, field, table, matches, download, toCSV, statCard, costPerGram } from '../ui.js';
 
 export const MOVEMENT_TYPES = { entree: 'Entrée', sortie: 'Sortie', ajustement: 'Ajustement', production: 'Production (formulation)', reception: 'Réception (commande)' };
@@ -125,6 +126,7 @@ function renderList(el, ctx) {
       <div class="page-head">
         <div><h2>Inventaire</h2><div class="subtitle">${rows.length} ingrédient(s) affiché(s)</div></div>
         <div class="actions">
+          ${inventaireDone() ? '' : '<button class="btn" data-import-inventaire title="Photos des ingrédients et de la verrerie du 9 octobre 2026">Importer l’inventaire photographié</button>'}
           <button class="btn" data-export>Exporter CSV</button>
           <button class="btn primary" data-new>+ Nouvel ingrédient</button>
         </div>
@@ -156,6 +158,7 @@ function renderList(el, ctx) {
   el.querySelector('[data-search]').addEventListener('change', e => go({ q: e.target.value }));
   el.querySelector('[data-cat]').addEventListener('change', e => go({ cat: e.target.value }));
   el.querySelector('[data-only]').addEventListener('change', e => go({ only: e.target.value }));
+  el.querySelector('[data-import-inventaire]')?.addEventListener('click', () => importInventaire(ctx.navigate));
   el.querySelector('[data-new]').addEventListener('click', () => openIngredientForm(null));
   el.querySelector('[data-export]').addEventListener('click', () => download('inventaire-dermagen-' + today() + '.csv', toCSV(rows, [
     { label: 'Code', value: 'code' }, { label: 'Nom', value: 'name' }, { label: 'INCI', value: 'inci' }, { label: 'Catégorie', value: 'category' },
