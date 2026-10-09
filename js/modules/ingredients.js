@@ -134,15 +134,15 @@ function renderList(el, ctx) {
       ${table({
         columns: [
           { label: 'Code', render: r => `<span class="muted">${esc(r.code)}</span>` },
-          { label: 'Ingrédient', render: r => `<div class="strong">${esc(r.name)}</div><div class="muted">${esc(r.inci || '')}</div>` },
+          { label: 'Ingrédient', render: r => `<div class="strong">${esc(r.name)}</div>` },
+          { label: 'INCI', render: r => `<span class="muted">${esc(r.inci || '—')}</span>` },
           { label: 'Catégorie', key: 'category' },
           { label: 'Fournisseur', render: r => esc(supplierName(r.supplierId)) },
-          { label: 'Stock', align: 'num', render: r => `<b>${num(r.stock, 3)}</b> ${esc(r.unit)}${r.minStock ? `<div class="muted">min ${num(r.minStock, 3)}</div>` : ''}` },
-          { label: 'Coût / unité', align: 'num', render: r => money(r.cost) },
+          { label: 'Stock', align: 'num', render: r => `<b>${num(r.stock, 3)}</b> ${esc(r.unit)}` },
           { label: 'Valeur', align: 'num', render: r => money((Number(r.stock) || 0) * (Number(r.cost) || 0)) },
           { label: 'Péremption', render: r => dateFmt(r.expiry) },
           { label: 'Statut', render: r => { const st = stockStatus(r); return badge(st.label, st.kind); } },
-          { label: '', render: r => `<div class="row-actions"><button class="btn" data-move="${r.id}">± Stock</button><button class="btn" data-edit="${r.id}">Modifier</button></div>` },
+          { label: '', render: r => `<div class="row-actions"><button class="btn" data-edit="${r.id}">Modifier</button></div>` },
         ],
         rows, empty: all.length ? 'Aucun ingrédient ne correspond aux filtres.' : 'Aucun ingrédient. Cliquez sur « Nouvel ingrédient » pour commencer.',
         rowAttrs: r => `class="clickable" data-open="${r.id}"`
