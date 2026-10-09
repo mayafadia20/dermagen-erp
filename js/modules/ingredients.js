@@ -117,11 +117,6 @@ function renderList(el, ctx) {
   const alerts = all.filter(r => stockStatus(r).kind !== 'green').length;
 
   el.innerHTML = `
-    <div class="stats">
-      ${statCard('Ingrédients référencés', all.length)}
-      ${statCard('Valeur du stock', money(inventoryValue()), 'au coût unitaire saisi')}
-      ${statCard('Alertes (bas / rupture / péremption)', alerts, '', alerts ? 'warn' : 'good')}
-    </div>
     <div class="card">
       <div class="page-head">
         <div><h2>Inventaire</h2><div class="subtitle">${rows.length} ingrédient(s) affiché(s)</div></div>
