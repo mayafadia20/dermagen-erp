@@ -89,6 +89,9 @@ async function boot() {
   $('#global-search').addEventListener('keydown', e => {
     if (e.key === 'Enter') { navigate('ingredients', '', { q: e.target.value }); }
   });
+  const h = new Date().getHours();
+  const hello = h < 5 ? 'Bonne nuit' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir';
+  $('#topbar-greeting').textContent = hello + ' · ' + new Date().toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long' });
   render();
   $('#splash').remove();
 }
