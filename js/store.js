@@ -27,7 +27,8 @@ export const DEFAULT_SETTINGS = {
   acceleratorTypes: ['Accélérateur', 'Incubateur', 'Subvention', 'Concours', 'Financement', 'Programme de mentorat', 'Autre'],
   anthropicKey: '',
   chatModel: 'claude-opus-5-5',
-  chatEffort: 'medium'
+  chatEffort: 'medium',
+  chatWeb: true
 };
 
 const state = {};

@@ -75,34 +75,20 @@ export function buildContext(formulationId) {
   return lines.join('\n');
 }
 
-// ---------- Appel de l'API Claude en flux ----------
+// ---------- Appel de l'API Claude en flux, avec recherche web côté serveur ----------
 export function apiConfig() {
   const s = db.settings();
-  return { key: (s.anthropicKey || '').trim(), model: s.chatModel || MODELS[0][0], effort: s.chatEffort || 'medium' };
+  return { key: (s.anthropicKey || '').trim(), model: s.chatModel || MODELS[0][0], effort: s.chatEffort || 'medium', web: s.chatWeb !== false };
 }
 
-/**
- * Envoie la conversation et appelle onDelta(texte) au fil de la réponse.
- * history : [{ role: 'user' | 'assistant', content: string }]
- * Retourne { text, stopReason, usage }.
- */
-export async function ask({ history, formulationId, skill = DEFAULT_SKILL, onDelta, signal }) {
-  const { key, model, effort } = apiConfig();
-  if (!key) throw new Error('Aucune clé API enregistrée. Ajoutez-la dans Paramètres → Assistante chimiste.');
-  const skillText = await loadSkill(skill);
-  const body = {
-    model,
-    max_tokens: 8000,
-    stream: true,
-    thinking: { type: 'adaptive' },
-    output_config: { effort },
-    fallbacks: 'default',
-    system: [
-      { type: 'text', text: skillText, cache_control: { type: 'ephemeral' } },
-      { type: 'text', text: buildContext(formulationId) },
-    ],
-    messages: history.map(m => ({ role: m.role, content: m.content })),
-  };
+const WEB_TOOLS = [
+  { type: 'web_search_20260209', name: 'web_search', max_uses: 5, user_location: { type: 'approximate', country: 'CA', city: 'Montreal', region: 'Quebec', timezone: 'America/Toronto' } },
+  { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5, max_content_tokens: 20000 },
+];
+const WEB_NOTE = `Recherche web activée : tu peux chercher sur le web et lire des pages. Utilise-la pour vérifier en direct les seuils réglementaires (Liste critique de Santé Canada, étiquetage, déclaration), les fiches techniques et fiches de données de sécurité des fournisseurs, et les avis récents, en privilégiant les sources officielles listées dans tes références (canada.ca, ec.europa.eu, cir-safety.org, fda.gov, makingcosmetics.com). Cherche seulement quand la question l'exige ; une question de procédé ou de raisonnement se répond sans recherche. Cite tes sources en fin de réponse sous la forme « Sources : » suivie de liens Markdown [titre](url).`;
+const MAX_CONTINUATIONS = 3;
+
+async function postStream(key, body, signal) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST', signal,
     headers: {
@@ -121,9 +107,39 @@ export async function ask({ history, formulationId, skill = DEFAULT_SKILL, onDel
     if (res.status === 429) msg = 'Limite de requêtes atteinte (429). Réessayez dans quelques secondes.';
     throw new Error(msg);
   }
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = '', text = '', stopReason = null, usage = null, stopDetails = null;
+  return res;
+}
+
+/** Lit un flux SSE et reconstruit les blocs de contenu de la réponse. */
+async function readStream(res, { onDelta, onEvent, textSoFar }) {
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  const blocks = []; const partial = {};
+  let buf = '', text = textSoFar, stopReason = null, stopDetails = null, usage = null;
+  const handle = (ev) => {
+    if (ev.type === 'content_block_start') {
+      const b = JSON.parse(JSON.stringify(ev.content_block)); blocks[ev.index] = b; partial[ev.index] = '';
+      if (b.type === 'text') { b.text = b.text || ''; b.citations = b.citations || []; }
+      if (b.type === 'server_tool_use') { onEvent && onEvent({ type: 'tool', name: b.name }); }
+      if (b.type === 'web_search_tool_result' || b.type === 'web_fetch_tool_result') {
+        const errorCode = !Array.isArray(b.content) && b.content?.error_code;
+        onEvent && onEvent({ type: 'result', name: b.type, count: Array.isArray(b.content) ? b.content.length : 0, error: errorCode || null });
+      }
+    } else if (ev.type === 'content_block_delta') {
+      const b = blocks[ev.index]; const d = ev.delta; if (!b || !d) return;
+      if (d.type === 'text_delta') { b.text += d.text; text += d.text; onDelta && onDelta(d.text, text); }
+      else if (d.type === 'input_json_delta') { partial[ev.index] += d.partial_json || ''; }
+      else if (d.type === 'citations_delta' && d.citation) { b.citations.push(d.citation); onEvent && onEvent({ type: 'citation', citation: d.citation }); }
+      else if (d.type === 'thinking_delta') { b.thinking = (b.thinking || '') + (d.thinking || ''); }
+      else if (d.type === 'signature_delta') { b.signature = d.signature; }
+    } else if (ev.type === 'content_block_stop') {
+      const b = blocks[ev.index];
+      if (b?.type === 'server_tool_use') {
+        try { b.input = partial[ev.index] ? JSON.parse(partial[ev.index]) : (b.input || {}); } catch (_) { b.input = b.input || {}; }
+        onEvent && onEvent({ type: 'tool-input', name: b.name, input: b.input });
+      }
+    } else if (ev.type === 'message_delta') { stopReason = ev.delta?.stop_reason || stopReason; stopDetails = ev.delta?.stop_details || stopDetails; usage = ev.usage || usage; }
+    else if (ev.type === 'error') throw new Error(ev.error?.message || 'Erreur de flux');
+  };
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -134,20 +150,57 @@ export async function ask({ history, formulationId, skill = DEFAULT_SKILL, onDel
       const dataLine = chunk.split('\n').find(l => l.startsWith('data:'));
       if (!dataLine) continue;
       let ev; try { ev = JSON.parse(dataLine.slice(5).trim()); } catch (_) { continue; }
-      if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') { text += ev.delta.text; onDelta && onDelta(ev.delta.text, text); }
-      else if (ev.type === 'message_delta') { stopReason = ev.delta?.stop_reason || stopReason; stopDetails = ev.delta?.stop_details || stopDetails; usage = ev.usage || usage; }
-      else if (ev.type === 'error') throw new Error(ev.error?.message || 'Erreur de flux');
+      handle(ev);
     }
+  }
+  return { blocks: blocks.filter(Boolean), text, stopReason, stopDetails, usage };
+}
+
+/**
+ * Envoie la conversation et appelle onDelta(texte) au fil de la réponse ; onEvent reçoit les étapes
+ * (recherche, lecture de page, citation). Reprend automatiquement après une pause du serveur.
+ * history : [{ role: 'user' | 'assistant', content: string }]
+ * Retourne { text, sources, stopReason, usage }.
+ */
+export async function ask({ history, formulationId, skill = DEFAULT_SKILL, onDelta, onEvent, signal }) {
+  const { key, model, effort, web } = apiConfig();
+  if (!key) throw new Error('Aucune clé API enregistrée. Ajoutez-la dans Paramètres → Assistante chimiste.');
+  const skillText = await loadSkill(skill);
+  const system = [
+    { type: 'text', text: skillText, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: buildContext(formulationId) },
+  ];
+  if (web) system.push({ type: 'text', text: WEB_NOTE });
+  const baseMessages = history.map(m => ({ role: m.role, content: m.content }));
+  const body = { model, max_tokens: 8000, stream: true, thinking: { type: 'adaptive' }, output_config: { effort }, fallbacks: 'default', system, messages: baseMessages };
+  if (web) body.tools = WEB_TOOLS;
+
+  let text = '', assistantBlocks = [], stopReason = null, stopDetails = null, usage = null;
+  const sources = new Map();
+  const collect = (ev) => { if (ev.type === 'citation' && ev.citation?.url) sources.set(ev.citation.url, ev.citation.title || ev.citation.url); onEvent && onEvent(ev); };
+  for (let turn = 0; turn <= MAX_CONTINUATIONS; turn++) {
+    const messages = assistantBlocks.length ? [...baseMessages, { role: 'assistant', content: assistantBlocks }] : baseMessages;
+    const res = await postStream(key, { ...body, messages }, signal);
+    const r = await readStream(res, { onDelta, onEvent: collect, textSoFar: text });
+    text = r.text; assistantBlocks = [...assistantBlocks, ...r.blocks]; stopReason = r.stopReason; stopDetails = r.stopDetails; usage = r.usage || usage;
+    if (stopReason !== 'pause_turn') break;
+    onEvent && onEvent({ type: 'continue', turn: turn + 1 });
   }
   if (stopReason === 'refusal' && !text) text = 'La réponse a été refusée par les filtres de sécurité' + (stopDetails?.category ? ` (catégorie : ${stopDetails.category})` : '') + '. Reformule la question en précisant le contexte cosmétique.';
   if (stopReason === 'max_tokens') text += '\n\n*(réponse tronquée : limite de longueur atteinte)*';
-  return { text, stopReason, usage };
+  if (stopReason === 'pause_turn') text += '\n\n*(recherche interrompue après plusieurs reprises : reformule ou précise la question)*';
+  const src = [...sources.entries()];
+  if (src.length && !/\n\s*\**Sources\**\s*:/i.test(text)) text += '\n\nSources : ' + src.map(([u, t]) => `[${t.replace(/[\[\]]/g, '')}](${u})`).join(' · ');
+  return { text, sources: src, stopReason, usage };
 }
 
 // ---------- Rendu Markdown minimal et sûr (échappement avant mise en forme) ----------
 const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function inline(s) {
-  return s.replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>');
+  return s.replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>');
 }
 export function renderMarkdown(md) {
   const lines = escHtml(md).split('\n');

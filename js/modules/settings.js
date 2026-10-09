@@ -48,6 +48,7 @@ export default {
             ${field({ label: 'Clé API Claude', name: 'anthropicKey', type: 'password', value: s.anthropicKey, cols: 4, placeholder: 'sk-ant-…', attrs: 'autocomplete="off"' })}
             ${field({ label: 'Modèle', name: 'chatModel', type: 'select', options: MODELS, value: s.chatModel, cols: 2 })}
             ${field({ label: 'Niveau de réflexion', name: 'chatEffort', type: 'select', options: EFFORTS, value: s.chatEffort, cols: 2, help: 'Approfondi = réponses plus poussées mais plus lentes et plus coûteuses.' })}
+            ${field({ label: 'Recherche web en direct (Santé Canada, fiches fournisseurs, avis récents) : les assistant·es consultent les pages au moment de la question et citent leurs sources', name: 'chatWeb', type: 'checkbox', value: s.chatWeb !== false, cols: 4 })}
             <div class="field cols-4" style="flex-direction:row;gap:8px;flex-wrap:wrap"><button type="submit" class="btn primary">Enregistrer</button><button type="button" class="btn" data-clear-key>Effacer la clé</button></div>
           </form>
         </div>
@@ -84,7 +85,7 @@ export default {
     });
     el.querySelector('[data-chat]').addEventListener('submit', e => {
       e.preventDefault(); const f = e.target;
-      db.saveSettings({ anthropicKey: f.anthropicKey.value.trim(), chatModel: f.chatModel.value, chatEffort: f.chatEffort.value });
+      db.saveSettings({ anthropicKey: f.anthropicKey.value.trim(), chatModel: f.chatModel.value, chatEffort: f.chatEffort.value, chatWeb: !!f.chatWeb.checked });
       toast('Réglages de l’assistante enregistrés');
     });
     el.querySelector('[data-clear-key]').addEventListener('click', () => { db.saveSettings({ anthropicKey: '' }); toast('Clé effacée'); });

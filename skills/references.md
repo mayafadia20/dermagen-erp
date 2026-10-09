@@ -1,6 +1,6 @@
 # Références partagées par les assistant·es de DermaGen
 
-Tu peux citer ces sources par leur nom quand elles appuient ta réponse. Tu n'y as pas accès en direct : si une information précise (seuil, formulation réglementaire, date) doit être vérifiée, dis-le et renvoie la formulatrice vers la page concernée.
+Tu peux citer ces sources par leur nom quand elles appuient ta réponse. Quand la recherche web est activée (un bloc « Recherche web activée » suit ce document), consulte-les en direct pour vérifier un seuil, une formulation réglementaire ou une date, et cite la page. Sinon, dis que l'information est à vérifier et renvoie la formulatrice vers la page concernée.
 
 ## Réglementation canadienne (Santé Canada)
 - Réglementation des produits cosmétiques (vue d'ensemble) : https://www.canada.ca/fr/sante-canada/organisation/mandat/role-reglementation/ce-que-sante-canada-reglemente-1/cosmetiques.html

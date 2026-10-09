@@ -45,7 +45,7 @@ export default {
           </div>
           <div class="chat-side-foot muted">
             <b>${esc(sk.label)}</b><br>${esc(modelLabel)}<br>
-            ${cfg.key ? 'Clé API enregistrée' : '<span class="pct-bad">Clé API manquante</span> · <a href="#/settings">Paramètres</a>'}
+            ${cfg.key ? 'Clé API enregistrée' : '<span class="pct-bad">Clé API manquante</span> · <a href="#/settings">Paramètres</a>'}<br>${cfg.web ? 'Recherche web en direct' : 'Recherche web désactivée'}
           </div>
         </aside>
         <section class="card chat-main">
@@ -132,9 +132,10 @@ async function respond(chatId, messages, formulationId, messagesEl, scroll, form
   const ta = form.querySelector('[name=text]'), send = form.querySelector('.chat-send');
   const holder = document.createElement('div');
   holder.className = 'msg assistant';
-  holder.innerHTML = `<div class="msg-avatar">${sk.icon}</div><div><div class="msg-body md"><span class="typing"><i></i><i></i><i></i></span></div><div class="msg-time"></div></div>`;
+  holder.innerHTML = `<div class="msg-avatar">${sk.icon}</div><div><div class="msg-body md"><span class="typing"><i></i><i></i><i></i></span></div><div class="msg-status" data-status hidden></div><div class="msg-time"></div></div>`;
   messagesEl.appendChild(holder); scroll();
-  const body = holder.querySelector('.msg-body');
+  const body = holder.querySelector('.msg-body'), status = holder.querySelector('[data-status]');
+  const setStatus = (t) => { status.textContent = t; status.hidden = !t; scroll(); };
   send.textContent = '■'; send.title = 'Arrêter'; ta.disabled = true;
   streaming = new AbortController();
   const stop = () => streaming && streaming.abort();
@@ -142,7 +143,14 @@ async function respond(chatId, messages, formulationId, messagesEl, scroll, form
   let full = '';
   try {
     const history = messages.map(m => ({ role: m.role, content: m.content }));
-    const r = await ask({ history, formulationId, skill: sk.id, signal: streaming.signal, onDelta: (_, acc) => { full = acc; body.innerHTML = renderMarkdown(acc); scroll(); } });
+    const r = await ask({ history, formulationId, skill: sk.id, signal: streaming.signal,
+      onDelta: (_, acc) => { full = acc; body.innerHTML = renderMarkdown(acc); scroll(); },
+      onEvent: (ev) => {
+        if (ev.type === 'tool-input') setStatus(ev.name === 'web_fetch' ? `Lecture de la page ${ev.input?.url || ''}` : `Recherche web : « ${ev.input?.query || ''} »`);
+        else if (ev.type === 'result') setStatus(ev.error ? `Recherche impossible (${ev.error})` : ev.name === 'web_fetch_tool_result' ? 'Page lue, rédaction en cours…' : `${ev.count} résultat(s), analyse en cours…`);
+        else if (ev.type === 'continue') setStatus('Recherche approfondie, reprise…');
+      } });
+    setStatus('');
     full = r.text || full;
     body.innerHTML = renderMarkdown(full);
   } catch (e) {
