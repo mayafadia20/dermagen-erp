@@ -36,7 +36,7 @@ function lineRow(l = {}, ingredients) {
     <td style="width:70px"><select name="phase">${PHASES.map(p => `<option ${p === (l.phase || 'A') ? 'selected' : ''}>${p}</option>`).join('')}</select></td>
     <td><select name="ingredientId">${opts}</select></td>
     <td style="width:110px"><input name="pct" type="number" step="0.001" min="0" max="100" value="${l.pct ?? ''}" placeholder="%"></td>
-    <td style="width:120px" class="num" data-qty>—</td>
+    <td style="width:130px"><input name="qty" type="number" step="0.001" min="0" placeholder="g" title="Quantité en grammes pour le lot de référence"></td>
     <td style="width:110px" class="num" data-cost>—</td>
     <td><input name="role" value="${esc(l.role || '')}" placeholder="Fonction"></td>
     <td style="width:40px"><button type="button" class="icon-btn del" data-del-line title="Retirer">✕</button></td>
@@ -64,7 +64,7 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
       ${field({ label: 'Objectif / hypothèse de recherche', name: 'objective', type: 'textarea', rows: 2, value: f.objective, cols: 4, placeholder: 'ex. Améliorer le lissage sans formaldéhyde sur cheveux poreux' })}
       <div class="form-section">Composition (total doit faire 100 %)</div>
       <div class="lines">
-        <table><thead><tr><th>Phase</th><th>Ingrédient</th><th>%</th><th class="num">Qté (g)</th><th class="num">Coût</th><th>Fonction</th><th></th></tr></thead>
+        <table><thead><tr><th>Phase</th><th>Ingrédient</th><th>%</th><th>Quantité (g)</th><th class="num">Coût</th><th>Fonction</th><th></th></tr></thead>
         <tbody data-lines>${(f.lines || []).map(l => lineRow(l, ingredients)).join('')}</tbody></table>
         <div class="lines-foot"><button type="button" class="btn sm" data-add-line>+ Ajouter une ligne</button><span>Total : <b data-total-pct>0</b> % · Coût du lot : <b data-total-cost>0</b> · <span data-per100></span></span></div>
       </div>
@@ -90,15 +90,19 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
   });
   const form = m.form;
   const tbody = form.querySelector('[data-lines]');
-  const recalc = () => {
+  const recalc = (e) => {
     const batch = Number(form.querySelector('[name=batchSize]').value) || 100;
+    const src = e && e.target;
     let pct = 0, cost = 0;
     tbody.querySelectorAll('tr').forEach(tr => {
-      const p = Number(tr.querySelector('[name=pct]').value) || 0;
+      const pctEl = tr.querySelector('[name=pct]'), qtyEl = tr.querySelector('[name=qty]');
+      /* La quantité en grammes et le pourcentage se déduisent l'un de l'autre selon le champ modifié */
+      if (src === qtyEl) { const g = Number(qtyEl.value) || 0; pctEl.value = batch ? String(Math.round(g / batch * 100 * 1000) / 1000) : ''; }
+      const p = Number(pctEl.value) || 0;
+      const grams = batch * p / 100;
+      if (src !== qtyEl && document.activeElement !== qtyEl) qtyEl.value = pctEl.value === '' ? '' : String(Math.round(grams * 1000) / 1000);
       const opt = tr.querySelector('[name=ingredientId]').selectedOptions[0];
       const cpg = Number(opt?.dataset.cost) || 0;
-      const grams = batch * p / 100;
-      tr.querySelector('[data-qty]').textContent = num(grams, 3) + ' g';
       tr.querySelector('[data-cost]').textContent = money(grams * cpg);
       pct += p; cost += grams * cpg;
     });
@@ -237,6 +241,7 @@ function renderDetail(el, ctx, f) {
           <button class="btn" data-print>Imprimer</button>
           <button class="btn" data-dup>Nouvelle version</button>
           <button class="btn" data-produce>Fabriquer un lot</button>
+          <button class="btn" data-link title="Rattacher cette formulation à une fiche théorique du cahier de charge">${f.recipeId && db.get('recipes', f.recipeId) ? 'Changer de fiche' : 'Rattacher à une fiche'}</button>
           <button class="btn" data-edit>Modifier</button>
           <button class="btn danger" data-del>Supprimer</button>
         </div>
@@ -302,6 +307,15 @@ function renderDetail(el, ctx, f) {
       </div>
     </div>`;
   el.querySelector('[data-edit]').addEventListener('click', () => openFormulationForm(f));
+  el.querySelector('[data-link]').addEventListener('click', () => {
+    const recipes = db.all('recipes').slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+    openModal({
+      title: 'Fiche théorique de référence',
+      body: `<div class="form-grid">${field({ label: 'Fiche théorique (cahier de charge)', name: 'recipeId', type: 'select', options: [['', '— Aucune —'], ...recipes.map(r => [r.id, r.name])], value: f.recipeId || '', cols: 4, help: 'La formulation apparaîtra sous cette fiche, avec ses observations et ses commentaires.' })}</div>`,
+      submitLabel: 'Enregistrer',
+      onSubmit(d) { db.update('formulations', f.id, { recipeId: d.recipeId || '' }); toast(d.recipeId ? 'Formulation rattachée à la fiche' : 'Formulation détachée de sa fiche'); }
+    });
+  });
   el.querySelector('[data-dup]').addEventListener('click', () => openFormulationForm(null, id => ctx.navigate('formulations', id), { duplicateFrom: f }));
   el.querySelector('[data-produce]').addEventListener('click', () => openProduceForm(f, ctx));
   el.querySelector('[data-print]').addEventListener('click', () => window.print());
