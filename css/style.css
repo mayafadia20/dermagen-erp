@@ -313,6 +313,7 @@ body.modal-open { overflow: hidden; }
 .msg.assistant .msg-body { background: var(--glass-strong); border: 1px solid rgba(255,255,255,.9); border-bottom-left-radius: 6px; box-shadow: var(--shadow); }
 .msg-time { font-size: 11px; color: var(--grey-t); margin: 4px 6px 0; }
 .msg-status { font-size: 12px; color: var(--purple-dk); margin: 6px 6px 0; display: flex; align-items: center; gap: 6px; }
+.msg-status[hidden] { display: none; }
 .msg-status::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--purple-lt); animation: typing 1s infinite ease-in-out; }
 .md a { color: var(--purple-dk); text-decoration: underline; text-decoration-color: var(--purple-lt); } .md a:hover { color: var(--purple); }
 .md p { margin: 0 0 8px; } .md p:last-child { margin-bottom: 0; }
