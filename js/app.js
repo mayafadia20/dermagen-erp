@@ -12,8 +12,10 @@ import settings from './modules/settings.js';
 import passwords from './modules/passwords.js';
 import accelerators from './modules/accelerators.js';
 import chat from './modules/chat.js';
+import profile from './modules/profile.js';
+import { requireLogin, currentUser, firstName, initials, logout, installReadOnlyGuard, isAdmin } from './auth.js';
 
-const MODULES = { dashboard, ingredients, formulations, chat, suppliers, purchases, invoices, payments, passwords, accelerators, settings };
+const MODULES = { dashboard, ingredients, formulations, chat, suppliers, purchases, invoices, payments, passwords, accelerators, profile, settings };
 
 const NAV = [
   { group: 'Vue d’ensemble' },
@@ -31,8 +33,9 @@ const NAV = [
   { group: 'Entreprise' },
   { id: 'accelerators', label: 'Demandes d’accélérateurs', icon: '➚' },
   { id: 'passwords', label: 'Mots de passe & accès', icon: '⚿' },
-  { group: 'Système' },
-  { id: 'settings', label: 'Paramètres & sauvegarde', icon: '⚙' },
+  { group: 'Compte' },
+  { id: 'profile', label: 'Mon profil', icon: '◉' },
+  { id: 'settings', label: 'Paramètres & sauvegarde', icon: '⚙', admin: true },
 ];
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -51,7 +54,7 @@ export function navigate(view, id = '', params = {}) {
 }
 
 function renderNav(active) {
-  $('#nav').innerHTML = NAV.map(n => n.group
+  $('#nav').innerHTML = NAV.filter(n => !n.admin || isAdmin()).map(n => n.group
     ? `<div class="nav-group">${esc(n.group)}</div>`
     : `<a href="#/${n.id}" class="nav-item ${n.id === active ? 'active' : ''}"><span class="nav-icon">${n.icon}</span><span>${esc(n.label)}</span></a>`
   ).join('');
@@ -60,6 +63,7 @@ function renderNav(active) {
 let current = null;
 function render() {
   const route = parseHash();
+  if (route.view === 'settings' && !isAdmin()) route.view = 'profile';
   current = route;
   renderNav(route.view);
   const mod = MODULES[route.view];
@@ -81,8 +85,23 @@ function render() {
   window.scrollTo(0, 0);
 }
 
+function paintUser() {
+  const u = currentUser(); if (!u) return;
+  const av = $('#topbar-avatar');
+  av.textContent = initials(u.name); av.style.background = u.color || ''; av.title = u.name;
+  $('#topbar-user-name').textContent = u.name;
+}
+
 async function boot() {
   await db.init();
+  $('#splash').remove();
+  await requireLogin();
+  installReadOnlyGuard();
+  paintUser();
+  document.addEventListener('user-changed', paintUser);
+  $('#topbar-avatar').addEventListener('click', e => { e.stopPropagation(); $('#user-menu').classList.toggle('open'); });
+  document.addEventListener('click', () => $('#user-menu').classList.remove('open'));
+  $('#user-logout').addEventListener('click', logout);
   window.addEventListener('hashchange', render);
   let dirty = false;
   db.on((col) => {
@@ -96,9 +115,8 @@ async function boot() {
   });
   const h = new Date().getHours();
   const hello = h < 5 ? 'Bonne nuit' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir';
-  $('#topbar-greeting').textContent = hello + ' · ' + new Date().toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('#topbar-greeting').textContent = hello + (currentUser() ? ' ' + firstName(currentUser().name) : '') + ' · ' + (d => d[0].toUpperCase() + d.slice(1))(new Date().toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long' }));
   render();
-  $('#splash').remove();
 }
 
 boot().catch(e => {

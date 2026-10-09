@@ -30,7 +30,14 @@
       <button id="menu-btn" class="icon-btn" aria-label="Menu">☰</button>
       <div class="topbar-text"><div class="greeting" id="topbar-greeting">Bonjour</div><h1 id="topbar-title">Tableau de bord</h1></div>
       <input id="global-search" type="search" placeholder="Rechercher un ingrédient…">
-      <div class="topbar-avatar" title="DermaGen">DG</div>
+      <div class="topbar-user">
+        <button id="topbar-avatar" class="topbar-avatar" type="button" title="Mon compte" aria-haspopup="menu">DG</button>
+        <div id="user-menu" class="user-menu" role="menu">
+          <div class="user-menu-name" id="topbar-user-name"></div>
+          <a href="#/profile" role="menuitem">Mon profil</a>
+          <button type="button" id="user-logout" role="menuitem">Se déconnecter</button>
+        </div>
+      </div>
     </header>
     <main id="main"></main>
   </div>

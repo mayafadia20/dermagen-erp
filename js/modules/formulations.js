@@ -3,6 +3,7 @@ import { db } from '../store.js';
 import { esc, money, num, dateFmt, today, isoWeek, toast, badge, openModal, confirmDialog, field, table, matches, statCard, costPerGram, gramsToUnit } from '../ui.js';
 import { recordMovement } from './ingredients.js';
 import { importEssais, ESSAIS_TAG } from '../essais.js';
+import { currentUser } from '../auth.js';
 
 export const STATUSES = ['En développement', 'En test', 'Validée', 'Abandonnée'];
 const STATUS_KIND = { 'En développement': 'blue', 'En test': 'amber', 'Validée': 'green', 'Abandonnée': 'grey' };
@@ -71,7 +72,7 @@ export function openFormulationForm(existing, onDone, { duplicateFrom } = {}) {
       ${field({ label: 'Stabilité', name: 'stability', value: f.stability, cols: 1, placeholder: 'ex. Stable 4 sem. à 40 °C' })}
       ${field({ label: 'Résultats des tests (cheveux, salon, panel)', name: 'result', type: 'textarea', rows: 3, value: f.result, cols: 4 })}
       ${field({ label: 'Notes / prochaines étapes', name: 'notes', type: 'textarea', rows: 2, value: f.notes, cols: 4 })}
-      ${field({ label: 'Formulateur·rice', name: 'author', value: f.author, cols: 2 })}
+      ${field({ label: 'Formulateur·rice', name: 'author', value: f.author || (existing ? '' : currentUser()?.name || ''), cols: 2 })}
     </div>`,
     submitLabel: existing ? 'Enregistrer' : 'Créer la formulation',
     onSubmit(data, { form }) {

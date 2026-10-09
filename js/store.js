@@ -7,7 +7,7 @@ const OBJECT_STORE = 'collections';
 
 export const COLLECTIONS = [
   'ingredients', 'movements', 'formulations', 'suppliers',
-  'purchases', 'invoices', 'payments', 'passwords', 'accelerators', 'chats', 'settings'
+  'purchases', 'invoices', 'payments', 'passwords', 'accelerators', 'chats', 'users', 'settings'
 ];
 
 export const DEFAULT_SETTINGS = {
