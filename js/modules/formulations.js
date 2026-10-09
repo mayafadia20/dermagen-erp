@@ -5,6 +5,7 @@ import { recordMovement } from './ingredients.js';
 import { importEssais, ESSAIS_TAG } from '../essais.js';
 import { currentUser } from '../auth.js';
 import { ensureRecipes, recipeLines, PHASE_LABEL } from '../recettes.js';
+import { currentUser as whoami } from '../auth.js';
 
 export const STATUSES = ['En développement', 'En test', 'Validée', 'Abandonnée'];
 const STATUS_KIND = { 'En développement': 'blue', 'En test': 'amber', 'Validée': 'green', 'Abandonnée': 'grey' };
@@ -29,6 +30,29 @@ export function formulationCost(f) {
 }
 export const totalPct = (f) => (f.lines || []).reduce((t, l) => t + (Number(l.pct) || 0), 0);
 
+
+// ---------- Mode opératoire en étapes ----------
+export const stepsOf = (x) => Array.isArray(x.steps) && x.steps.length ? x.steps : String(x.procedure || '').split('\n').map(t => t.trim()).filter(Boolean);
+function stepRow(text = '') { return `<div class="step-row" data-repeat-row><span class="step-no"></span><input name="step" value="${esc(text)}" placeholder="Décris l’étape…"><button type="button" class="icon-btn del" data-del-step title="Retirer">✕</button></div>`; }
+function stepsEditor(steps) {
+  return `<div class="field cols-4"><label>Mode opératoire (étapes, dans l’ordre)</label>
+    <div class="steps-editor" data-steps>${steps.map(stepRow).join('')}</div>
+    <button type="button" class="btn sm" data-add-step style="align-self:flex-start;margin-top:6px">+ Ajouter une étape</button></div>`;
+}
+function wireStepsEditor(form) {
+  const box = form.querySelector('[data-steps]'); if (!box) return;
+  const renumber = () => box.querySelectorAll('.step-row').forEach((r, i) => r.querySelector('.step-no').textContent = i + 1);
+  form.querySelector('[data-add-step]').addEventListener('click', () => { box.insertAdjacentHTML('beforeend', stepRow()); renumber(); box.querySelector('.step-row:last-child input').focus(); });
+  box.addEventListener('click', e => { const b = e.target.closest('[data-del-step]'); if (b) { b.closest('.step-row').remove(); renumber(); } });
+  box.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.name === 'step') { e.preventDefault(); e.stopPropagation(); form.querySelector('[data-add-step]').click(); } });
+  renumber();
+}
+const readSteps = (form) => [...form.querySelectorAll('[data-steps] input[name=step]')].map(i => i.value.trim()).filter(Boolean);
+function stepsHtml(steps, { editable = false } = {}) {
+  if (!steps.length) return `<div class="empty">Aucune étape.${editable ? ' Ajoute la première étape ci-dessous.' : ''}</div>`;
+  return `<ol class="steps">${steps.map((st, i) => `<li class="step-chip"><span class="step-no">${i + 1}</span><span class="step-text" ${editable ? `data-edit-step="${i}" title="Modifier cette étape"` : ''}>${esc(st)}</span>${editable ? `<button type="button" class="icon-btn del" data-remove-step="${i}" title="Retirer">✕</button>` : ''}</li>`).join('')}</ol>`;
+}
+
 // ---------- Éditeur ----------
 function lineRow(l = {}, ingredients) {
   const opts = ['<option value="">— Choisir —</option>', ...ingredients.map(i => `<option value="${i.id}" data-cost="${costPerGram(i)}" ${i.id === l.ingredientId ? 'selected' : ''}>${esc(i.name)}${i.inci ? ' (' + esc(i.inci) + ')' : ''}</option>`)].join('');
@@ -46,7 +70,7 @@ function lineRow(l = {}, ingredients) {
 export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecipe } = {}) {
   const s = db.settings();
   const recipes = db.all('recipes').slice().sort((a, b) => (a.order || 0) - (b.order || 0));
-  const fromR = fromRecipe ? { code: nextCode(today()), date: today(), version: db.all('formulations').filter(x => x.recipeId === fromRecipe.id).length + 1, status: STATUSES[0], productType: 'Traitement lissant', batchSize: 100, recipeId: fromRecipe.id, name: fromRecipe.name, objective: fromRecipe.description || '', lines: recipeLines(fromRecipe).map(l => ({ phase: l.phase, ingredientId: l.ingredientId, pct: l.pct, role: l.role })) } : null;
+  const fromR = fromRecipe ? { code: nextCode(today()), date: today(), version: db.all('formulations').filter(x => x.recipeId === fromRecipe.id).length + 1, status: STATUSES[0], productType: 'Traitement lissant', batchSize: 100, recipeId: fromRecipe.id, name: fromRecipe.name, objective: fromRecipe.description || '', steps: (fromRecipe.steps || []).slice(), lines: recipeLines(fromRecipe).map(l => ({ phase: l.phase, ingredientId: l.ingredientId, pct: l.pct, role: l.role })) } : null;
   const ingredients = db.all('ingredients').slice().sort((a, b) => a.name.localeCompare(b.name));
   const base = duplicateFrom ? { ...duplicateFrom, id: undefined, code: nextCode(today()), date: today(), version: (Number(duplicateFrom.version) || 1) + 1, status: 'En développement', parentCode: duplicateFrom.code, result: '', notes: '' } : null;
   const f = base || fromR || existing || { code: nextCode(today()), date: today(), version: 1, status: STATUSES[0], productType: s.productTypes[0], batchSize: 100, lines: [{ phase: 'A' }, { phase: 'A' }, { phase: 'B' }] };
@@ -69,7 +93,7 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
         <div class="lines-foot"><button type="button" class="btn sm" data-add-line>+ Ajouter une ligne</button><span>Total : <b data-total-pct>0</b> % · Coût du lot : <b data-total-cost>0</b> · <span data-per100></span></span></div>
       </div>
       <div class="form-section">Mode opératoire, observations et résultats</div>
-      ${field({ label: 'Mode opératoire (étapes de fabrication)', name: 'procedure', type: 'textarea', rows: 4, value: f.procedure, cols: 4, placeholder: 'Phase A : chauffer à 75 °C… Phase B : …' })}
+      ${stepsEditor(stepsOf(f))}
       ${field({ label: 'pH', name: 'ph', value: f.ph, cols: 1 })}
       ${field({ label: 'Viscosité / texture', name: 'viscosity', value: f.viscosity, cols: 1 })}
       ${field({ label: 'Aspect / odeur', name: 'aspect', value: f.aspect, cols: 1 })}
@@ -83,12 +107,14 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
       const lines = readLines(form);
       if (!lines.length) { toast('Ajoutez au moins un ingrédient.', 'warn'); return false; }
       data.lines = lines; data.batchSize = Number(data.batchSize) || 100; data.version = Number(data.version) || 1;
+      data.steps = readSteps(form); data.procedure = data.steps.join('\n');
       data.weekKey = isoWeek(data.date).key;
       if (existing) { db.update('formulations', existing.id, data); toast('Formulation mise à jour'); onDone && onDone(existing.id); }
       else { if (base) data.parentCode = base.parentCode; const rec = db.insert('formulations', data); toast('Formulation créée'); onDone && onDone(rec.id); }
     }
   });
   const form = m.form;
+  wireStepsEditor(form);
   const tbody = form.querySelector('[data-lines]');
   const recalc = (e) => {
     const batch = Number(form.querySelector('[name=batchSize]').value) || 100;
@@ -122,7 +148,7 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
 }
 
 function readLines(form) {
-  return [...form.querySelectorAll('[data-repeat-row]')].map(tr => ({
+  return [...form.querySelectorAll('[data-lines] [data-repeat-row]')].map(tr => ({
     phase: tr.querySelector('[name=phase]').value,
     ingredientId: tr.querySelector('[name=ingredientId]').value,
     pct: Number(tr.querySelector('[name=pct]').value) || 0,
@@ -271,7 +297,7 @@ function renderDetail(el, ctx, f) {
     <div class="grid two">
       <div class="card">
         <h3 style="margin-bottom:10px">Mode opératoire</h3>
-        <p style="white-space:pre-wrap">${esc(f.procedure || 'Non renseigné.')}</p>
+        ${stepsHtml(stepsOf(f))}
         <h3 style="margin:16px 0 10px">Observations et résultats</h3>
         <dl class="detail-grid">
           <div><dt>pH</dt><dd>${esc(f.ph || '—')}</dd></div>
@@ -369,6 +395,11 @@ async function loadRecommendation(r, el, { force = false } = {}) {
 }
 
 // ---------- Fiches théoriques (cahier de charge) ----------
+function threadBubble(m) {
+  const t = m.at ? new Date(m.at).toLocaleString('fr-CA', { dateStyle: 'short', timeStyle: 'short' }) : '';
+  if (m.role === 'user') return `<div class="msg user"><div class="msg-body">${esc(m.content)}</div><div class="msg-time">${esc(m.by || '')} · ${t}</div></div>`;
+  return `<div class="msg assistant"><div class="msg-avatar">⚗</div><div><div class="msg-body md">${renderMarkdown(m.content)}</div><div class="msg-time">${t}</div></div></div>`;
+}
 function recipeLinkHtml(f) {
   const r = f.recipeId ? db.get('recipes', f.recipeId) : null;
   return r ? `<a href="#/formulations/fiche-${r.id}">${esc(r.name)}</a>` : '';
@@ -451,10 +482,20 @@ function renderRecipe(el, ctx, r) {
         ], rows: lines
       })}
     </div>
+    <div class="card">
+      <div class="card-head"><h3>Mode opératoire</h3><span class="muted">Clique une étape pour la modifier · ✕ pour la retirer</span></div>
+      <div data-steps-view>${stepsHtml(r.steps || [], { editable: true })}</div>
+      <form class="step-add" data-step-add><input name="step" placeholder="Nouvelle étape… (Entrée pour ajouter)"><button type="submit" class="btn sm">+ Ajouter</button></form>
+    </div>
     <div class="card reco-card">
       <div class="card-head"><h3><span class="reco-icon">⚗</span> Recommandation de l’assistante chimiste</h3><div class="actions"><span class="muted" data-reco-date></span><button class="btn sm" data-reco-refresh title="Redemander une recommandation à jour">Actualiser</button></div></div>
       <div class="md reco-body" data-reco></div>
-      <div class="muted" style="font-size:12px;margin-top:10px">Recommandation générée par l’IA à partir de la fiche, du stock et des essais précédents. Elle ne remplace ni les tests ni l’évaluation de sécurité. Pour approfondir, pose la question dans <a href="#/chat">Assistante chimiste</a>.</div>
+      <div class="reco-thread" data-thread>${(r.thread || []).map(m => threadBubble(m)).join('')}</div>
+      <form class="reco-composer" data-reco-form>
+        <input name="q" placeholder="Pose une question sur cette fiche à l’assistante chimiste… (Entrée pour envoyer)" autocomplete="off">
+        <button type="submit" class="chat-send reco-send" title="Envoyer" aria-label="Envoyer">➤</button>
+      </form>
+      <div class="muted" style="font-size:12px;margin-top:10px">L’assistante voit la formule théorique, le mode opératoire, les formulations réelles rattachées et leurs observations. La discussion reste enregistrée sur cette fiche. Elle ne remplace ni les tests ni l’évaluation de sécurité.</div>
     </div>
     <div class="card">
       <div class="card-head"><h3>Formulations réelles</h3><span class="muted">Chaque essai garde ses observations, ses résultats et les commentaires pour la prochaine fois.</span></div>
@@ -462,6 +503,40 @@ function renderRecipe(el, ctx, r) {
     </div>`;
   loadRecommendation(r, el);
   el.querySelector('[data-reco-refresh]').addEventListener('click', () => loadRecommendation(r, el, { force: true }));
+  // Étapes du mode opératoire
+  const stepsView = el.querySelector('[data-steps-view]');
+  const saveSteps = (steps) => { db.update('recipes', r.id, { steps }); r.steps = steps; stepsView.innerHTML = stepsHtml(steps, { editable: true }); };
+  el.querySelector('[data-step-add]').addEventListener('submit', e => { e.preventDefault(); const inp = e.target.step; const t = inp.value.trim(); if (!t) return; saveSteps([...(r.steps || []), t]); inp.value = ''; });
+  stepsView.addEventListener('click', e => {
+    const rm = e.target.closest('[data-remove-step]'); if (rm) { const steps = (r.steps || []).slice(); steps.splice(+rm.dataset.removeStep, 1); saveSteps(steps); return; }
+    const ed = e.target.closest('[data-edit-step]');
+    if (ed) { const i = +ed.dataset.editStep; openModal({ title: `Étape ${i + 1}`, body: `<div class="form-grid">${field({ label: 'Texte de l’étape', name: 'text', type: 'textarea', rows: 3, value: r.steps[i], required: true, cols: 4 })}</div>`, onSubmit(d) { const steps = r.steps.slice(); steps[i] = d.text.trim(); saveSteps(steps); } }); }
+  });
+  // Fil de discussion sur la fiche
+  const thread = el.querySelector('[data-thread]'), rform = el.querySelector('[data-reco-form]');
+  rform.addEventListener('submit', async e => {
+    e.preventDefault();
+    const q = rform.q.value.trim(); if (!q) return;
+    if (!apiConfig().key) return toast('Enregistre d’abord une clé API dans Paramètres → Assistante chimiste.', 'warn');
+    rform.q.value = ''; rform.q.disabled = true;
+    const now = new Date().toISOString();
+    const msgs = [...(r.thread || []), { role: 'user', content: q, at: now, by: whoami()?.name || '' }];
+    db.update('recipes', r.id, { thread: msgs }); r.thread = msgs;
+    thread.insertAdjacentHTML('beforeend', threadBubble(msgs[msgs.length - 1]));
+    const holder = document.createElement('div'); holder.className = 'msg assistant'; holder.innerHTML = `<div class="msg-avatar">⚗</div><div><div class="msg-body md"><span class="typing"><i></i><i></i><i></i></span></div><div class="msg-time"></div></div>`;
+    thread.appendChild(holder); holder.scrollIntoView({ block: 'nearest' });
+    const body = holder.querySelector('.msg-body');
+    let full = '';
+    try {
+      const res = await ask({ history: msgs.map(m => ({ role: m.role, content: m.content })), recipeId: r.id, skill: 'chimiste', onDelta: (_, acc) => { full = acc; body.innerHTML = renderMarkdown(acc); } });
+      full = res.text || full; body.innerHTML = renderMarkdown(full);
+    } catch (err) { body.innerHTML = `<div class="warnbox" style="margin:0">${esc(err.message || 'Erreur')}</div>`; full = ''; }
+    finally {
+      rform.q.disabled = false; rform.q.focus();
+      holder.querySelector('.msg-time').textContent = new Date().toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' });
+      if (full) { const all = [...(db.get('recipes', r.id)?.thread || msgs), { role: 'assistant', content: full, at: new Date().toISOString() }]; db.update('recipes', r.id, { thread: all }); r.thread = all; }
+    }
+  });
   const create = () => openFormulationForm(null, id => ctx.navigate('formulations', id), { fromRecipe: r });
   el.querySelector('[data-create]').addEventListener('click', create);
   el.addEventListener('click', e => { const tr = e.target.closest('tr[data-open]'); if (tr) ctx.navigate('formulations', tr.dataset.open); });

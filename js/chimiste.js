@@ -72,10 +72,13 @@ export function buildContext(formulationId, recipeId) {
     if (rec.warning) lines.push(`Avertissement du cahier de charge : ${rec.warning}`);
     lines.push('Formule théorique (pour 100 g) : eau qsp 100 + ' + (rec.lines || []).map(([k, p]) => `${k} ${p} %`).join(', '));
     const essais = db.all('formulations').filter(x => x.recipeId === rec.id).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    if ((rec.steps || []).length) { lines.push('Mode opératoire de la fiche :'); rec.steps.forEach((st, i) => lines.push(`  ${i + 1}. ${st}`)); }
     lines.push(`Formulations réelles rattachées : ${essais.length}`);
     for (const e of essais) {
       const comp = (e.lines || []).map(l => { const i = db.get('ingredients', l.ingredientId); return `${i ? i.name : '?'} ${num(l.pct, 2)}%`; }).join(', ');
       lines.push(`- ${e.code} v${e.version || 1} (${e.date || '—'}, ${e.status}) : ${comp}`);
+      const stepsE = Array.isArray(e.steps) && e.steps.length ? e.steps : String(e.procedure || '').split('\n').filter(Boolean);
+      if (stepsE.length) lines.push('  Mode opératoire : ' + stepsE.map((st, i) => `${i + 1}) ${st}`).join(' '));
       const obs = [['pH', e.ph], ['Viscosité', e.viscosity], ['Aspect', e.aspect], ['Stabilité', e.stability], ['Résultats', e.result], ['Commentaires pour la prochaine fois', e.notes]].filter(x => x[1]);
       for (const [k, v] of obs) lines.push(`  ${k} : ${v}`);
     }
@@ -89,7 +92,8 @@ export function buildContext(formulationId, recipeId) {
     if (f.objective) lines.push(`Objectif : ${f.objective}`);
     lines.push('Composition :', 'Phase | Ingrédient | % | Quantité pour le lot | Rôle | Stock restant');
     for (const l of f.lines || []) { const i = db.get('ingredients', l.ingredientId); lines.push(`${l.phase || '?'} | ${i ? i.name : 'ingrédient supprimé'} | ${num(l.pct, 3)} | ${num((Number(f.batchSize) || 100) * l.pct / 100, 3)} g | ${l.role || ''} | ${i ? fmtQty(i) : '—'}`); }
-    if (f.procedure) lines.push(`Mode opératoire : ${f.procedure}`);
+    const stepsF = Array.isArray(f.steps) && f.steps.length ? f.steps : String(f.procedure || '').split('\n').filter(Boolean);
+    if (stepsF.length) { lines.push('Mode opératoire :'); stepsF.forEach((st, i) => lines.push(`  ${i + 1}. ${st}`)); }
     const obs = [['pH', f.ph], ['Viscosité / texture', f.viscosity], ['Aspect / odeur', f.aspect], ['Stabilité', f.stability], ['Résultats', f.result], ['Notes', f.notes]].filter(x => x[1]);
     for (const [k, v] of obs) lines.push(`${k} : ${v}`);
     if ((f.batches || []).length) lines.push(`Lots fabriqués : ${f.batches.map(b => `${b.lot} (${num(b.qty, 0)} g, ${b.date})`).join(' ; ')}`);

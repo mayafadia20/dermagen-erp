@@ -380,6 +380,24 @@ body.login-open { overflow: hidden; }
 .recipe-name { font-weight: 600; font-size: 15.5px; letter-spacing: -.01em; line-height: 1.25; }
 .recipe-desc { font-size: 12.5px; color: var(--grey-t); line-height: 1.45; flex: 1; }
 .recipe-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-2); padding-top: 8px; border-top: 1px solid var(--line); }
+/* ---------- Mode opératoire en étapes ---------- */
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.step-chip { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 14px; background: rgba(255,255,255,.7); border: 1px solid rgba(255,255,255,.9); box-shadow: 0 2px 8px rgba(60,40,120,.05); }
+.step-no { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--purple); color: #fff; font-size: 12px; font-weight: 700; }
+.step-text { flex: 1; line-height: 1.5; font-size: 13.5px; }
+.step-text[data-edit-step] { cursor: text; border-radius: 8px; padding: 0 4px; } .step-text[data-edit-step]:hover { background: var(--purple-pale); }
+.step-chip .del { color: var(--red); margin: -4px -6px 0 0; }
+.step-add { display: flex; gap: 8px; margin-top: 12px; } .step-add input { flex: 1; }
+.steps-editor { display: flex; flex-direction: column; gap: 6px; }
+.step-row { display: flex; align-items: center; gap: 8px; } .step-row input { flex: 1; } .step-row .del { color: var(--red); }
+.step-row .step-no { width: 24px; height: 24px; font-size: 11px; }
+/* ---------- Fil de discussion d'une fiche ---------- */
+.reco-thread { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.reco-thread:empty { margin-top: 0; }
+.reco-thread .msg { max-width: 92%; }
+.reco-composer { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+.reco-composer input { flex: 1; border-radius: 999px; padding: 11px 16px; }
+.reco-send { width: 42px; height: 42px; font-size: 16px; }
 .reco-card { border-left: 4px solid var(--purple); }
 .reco-icon { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, var(--purple-lt), var(--purple-dk)); color: #fff; font-size: 13px; margin-right: 6px; vertical-align: -6px; }
 .reco-body { font-size: 14px; line-height: 1.55; }

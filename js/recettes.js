@@ -71,6 +71,29 @@ export const RECIPES = [
     usage: 'Toujours utilisé, en dernier. Rinçage : non.', warning: '' },
 ];
 
+
+// Modes opératoires proposés (à valider par la formulatrice) : étapes modifiables sur chaque fiche.
+const F1_STEPS = [
+  'Disperser l’hydroxyethylcellulose dans l’eau froide sous agitation et laisser hydrater jusqu’à un gel homogène.',
+  'Ajouter la glycérine, le Sodium PCA, le sodium citrate et l’EDTA (phase A).',
+  'Chauffer la phase A à 70–75 °C et incorporer le Coco-Caprylate/Caprate sous agitation soutenue.',
+  'Refroidir sous agitation lente jusqu’à moins de 40 °C.',
+  'Ajouter le panthénol, le caprylyl glycol et le phénoxyéthanol.',
+  'Mesurer le pH sur produit refroidi et l’ajuster à 5,0–6,0.',
+  'Ajouter la kératinase en dernier, à froid, sous agitation douce.',
+  'Mesurer pH, viscosité et aspect, puis conditionner en flacon opaque airless.',
+];
+const STEPS_BY_KEY = {
+  'f1-legere': F1_STEPS, 'f1-moyenne': F1_STEPS, 'f1-intense': F1_STEPS,
+  f2: ['Mélanger l’eau et le gel d’aloe vera à froid.', 'Ajouter la kératine, la soie et les protéines de blé hydrolysées sous agitation.', 'Ajouter le panthénol.', 'Mesurer le pH et l’ajuster à 4,5–5,5.', 'Mesurer l’aspect et conditionner.'],
+  f3: ['Chauffer le beurre de karité, l’huile d’argan et l’alcool cétéarylique à 70–75 °C (phase B).', 'Chauffer l’eau à 70–75 °C (phase A).', 'Verser la phase B dans la phase A sous agitation forte et émulsionner 3 minutes.', 'Refroidir sous agitation lente.', 'Ajouter les acides aminés de soie sous 40 °C.', 'Mesurer pH, viscosité et aspect, puis conditionner.'],
+  f4: ['Dissoudre l’acide citrique dans l’eau.', 'Ajouter l’acide glycolique sous agitation (gants, lunettes, hotte ou pièce ventilée).', 'Mesurer le pH et l’ajuster à 3,0–3,5.', 'Conditionner et étiqueter avec les mises en garde.'],
+  f5: ['Dissoudre l’acide citrique dans l’eau.', 'Ajouter le sodium hyaluronate et laisser hydrater.', 'Ajouter le peroxyde d’hydrogène à froid, sous agitation douce.', 'Mesurer le pH et l’ajuster à 2,5–3,5.', 'Conditionner en flacon opaque.'],
+  f6: ['Mélanger l’eau et le gel d’aloe vera à froid.', 'Ajouter la kératine, la soie et les protéines de riz hydrolysées sous agitation.', 'Ajouter le panthénol.', 'Mesurer le pH et l’ajuster à 4,5–5,5.', 'Mesurer l’aspect et conditionner.'],
+  f7: ['Disperser le PEG-12 Dimethicone dans l’eau.', 'Ajouter les protéines de riz et le sodium hyaluronate, laisser hydrater.', 'Ajouter l’huile de jojoba sous agitation.', 'Mesurer le pH et l’aspect, puis conditionner.'],
+};
+export const defaultSteps = (key) => (STEPS_BY_KEY[key] || []).slice();
+
 export const PHASE_LABEL = { T: 'Phase T — Transformante', N: 'Phase N — Nourrissante' };
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’']/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -105,8 +128,9 @@ export function ensureRecipes() {
       db.remove('recipes', r.id);
     }
     for (const r of RECIPES) {
-      if (db.all('recipes').some(x => x.key === r.key)) continue;
-      db.insert('recipes', { ...r, source: RECIPES_TAG });
+      const found = db.all('recipes').find(x => x.key === r.key);
+      if (found) { if (!Array.isArray(found.steps)) db.update('recipes', found.id, { steps: defaultSteps(r.key) }); continue; }
+      db.insert('recipes', { ...r, steps: defaultSteps(r.key), source: RECIPES_TAG });
       n++;
     }
   } finally { seeding = false; }
