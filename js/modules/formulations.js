@@ -2,6 +2,7 @@
 import { db } from '../store.js';
 import { esc, money, num, dateFmt, today, isoWeek, toast, badge, openModal, confirmDialog, field, table, matches, statCard, costPerGram, gramsToUnit } from '../ui.js';
 import { recordMovement } from './ingredients.js';
+import { importEssais, ESSAIS_TAG } from '../essais.js';
 
 export const STATUSES = ['En développement', 'En test', 'Validée', 'Abandonnée'];
 const STATUS_KIND = { 'En développement': 'blue', 'En test': 'amber', 'Validée': 'green', 'Abandonnée': 'grey' };
@@ -178,7 +179,10 @@ function renderList(el, ctx) {
     <div class="card">
       <div class="page-head">
         <div><h2>Formulations R&D</h2><div class="subtitle">Journal hebdomadaire des essais de formulation</div></div>
-        <div class="actions"><button class="btn primary" data-new>+ Nouvelle formulation</button></div>
+        <div class="actions">
+          ${all.some(f => f.importTag === ESSAIS_TAG) ? '' : '<button class="btn" data-import-essais title="Document « Calcul et quantités » : Booster Activation, Phase Transformante T1 à T4, Booster lipidique">Importer les essais du document</button>'}
+          <button class="btn primary" data-new>+ Nouvelle formulation</button>
+        </div>
       </div>
       <div class="toolbar">
         <input type="search" class="search" data-search placeholder="Rechercher (code, nom, objectif…)" value="${esc(q)}">
@@ -204,6 +208,7 @@ function renderList(el, ctx) {
   const go = (patch) => ctx.navigate('formulations', '', { q, status: st, ...patch });
   el.querySelector('[data-search]').addEventListener('change', e => go({ q: e.target.value }));
   el.querySelector('[data-status]').addEventListener('change', e => go({ status: e.target.value }));
+  el.querySelector('[data-import-essais]')?.addEventListener('click', () => importEssais(ctx.navigate));
   el.querySelector('[data-new]').addEventListener('click', () => {
     if (!db.all('ingredients').length) return toast('Créez d’abord des ingrédients dans l’inventaire.', 'warn');
     openFormulationForm(null, id => ctx.navigate('formulations', id));
