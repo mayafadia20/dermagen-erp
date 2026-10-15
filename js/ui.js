@@ -102,11 +102,11 @@ export function openModal({ title, body, footer, wide = false, onSubmit, submitL
   return { overlay, form, close };
 }
 
-export function confirmDialog(message, { title = 'Confirmer', danger = true, label = 'Confirmer' } = {}) {
+export function confirmDialog(message, { title = 'Confirmer', danger = true, label = 'Confirmer', html = false } = {}) {
   return new Promise(resolve => {
     let done = false;
     const m = openModal({
-      title, body: `<p class="confirm-text">${esc(message)}</p>`,
+      title, wide: html, body: html ? `<div class="confirm-text">${message}</div>` : `<p class="confirm-text">${esc(message)}</p>`,
       footer: `<button type="button" class="btn ghost" data-close>Annuler</button><button type="button" class="btn ${danger ? 'danger' : 'primary'}" data-yes>${esc(label)}</button>`,
       onClose: () => { if (!done) resolve(false); }
     });
