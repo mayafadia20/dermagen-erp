@@ -61,6 +61,7 @@ function lineRow(l = {}, ingredients, sheetIds = new Set()) {
     ...(inSheet.length ? [`<optgroup label="Ingrédients de la fiche théorique">${inSheet.map(opt).join('')}</optgroup>`] : []),
     `<optgroup label="${inSheet.length ? 'Tous les ingrédients de l’inventaire' : 'Ingrédients de l’inventaire'}">${others.map(opt).join('')}</optgroup>`].join('');
   return `<tr data-repeat-row>
+    <td class="line-grip" draggable="true" title="Glisser pour déplacer la ligne"><span class="grip">⋮⋮</span><span class="line-arrows"><button type="button" data-move-line="up" title="Monter">▲</button><button type="button" data-move-line="down" title="Descendre">▼</button></span></td>
     <td style="width:70px"><select name="phase">${PHASES.map(p => `<option ${p === (l.phase || 'A') ? 'selected' : ''}>${p}</option>`).join('')}</select></td>
     <td><select name="ingredientId">${opts}</select></td>
     <td style="width:110px"><input name="pct" type="number" step="0.001" min="0" max="100" value="${l.pct ?? ''}" placeholder="%"></td>
@@ -94,7 +95,7 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
       ${field({ label: 'Objectif / hypothèse de recherche', name: 'objective', type: 'textarea', rows: 2, value: f.objective, cols: 4, placeholder: 'ex. Améliorer le lissage sans formaldéhyde sur cheveux poreux' })}
       <div class="form-section">Composition (total doit faire 100 %)</div>
       <div class="lines">
-        <table><thead><tr><th>Phase</th><th>Ingrédient</th><th>%</th><th>Quantité (g)</th><th class="num">Coût</th><th>Fonction</th><th></th></tr></thead>
+        <table><thead><tr><th></th><th>Phase</th><th>Ingrédient</th><th>%</th><th>Quantité (g)</th><th class="num">Coût</th><th>Fonction</th><th></th></tr></thead>
         <tbody data-lines>${(f.lines || []).map(l => lineRow(l, ingredients, sheetIds)).join('')}</tbody></table>
         <div class="lines-foot"><button type="button" class="btn sm" data-add-line>+ Ajouter une ligne</button><span>Total : <b data-total-pct>0</b> % · Coût du lot : <b data-total-cost>0</b> · <span data-per100></span></span></div>
       </div>
@@ -148,9 +149,50 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
   form.querySelector('[data-add-line]').addEventListener('click', () => {
     const last = tbody.querySelector('tr:last-child [name=phase]')?.value || 'A';
     tbody.insertAdjacentHTML('beforeend', lineRow({ phase: last }, ingredients, sheetIds)); recalc();
+    tbody.lastElementChild.querySelector('[name=ingredientId]').focus();
   });
-  form.addEventListener('click', e => { const b = e.target.closest('[data-del-line]'); if (b) { b.closest('tr').remove(); recalc(); } });
+  form.addEventListener('click', e => {
+    const b = e.target.closest('[data-del-line]'); if (b) { b.closest('tr').remove(); recalc(); return; }
+    const mv = e.target.closest('[data-move-line]');
+    if (mv) {
+      const tr = mv.closest('tr'), other = mv.dataset.moveLine === 'up' ? tr.previousElementSibling : tr.nextElementSibling;
+      if (other) { mv.dataset.moveLine === 'up' ? other.before(tr) : other.after(tr); flashRow(tr); }
+    }
+  });
+  /* Changer la phase d'une ligne la range avec les autres lignes de cette phase (ordre A, B, C… ; l'ordre dans la phase est conservé) */
+  tbody.addEventListener('change', e => {
+    if (e.target.name !== 'phase') return;
+    const tr = e.target.closest('tr');
+    tr.remove();
+    const rank = (r) => PHASES.indexOf(r.querySelector('[name=phase]').value);
+    const rows = [...tbody.querySelectorAll('tr')], mine = rank(tr);
+    const after = rows.filter(r => rank(r) <= mine).pop();
+    after ? after.after(tr) : tbody.prepend(tr);
+    flashRow(tr); e.target.focus();
+  });
+  wireLineDrag(tbody);
   recalc();
+}
+
+function flashRow(tr) { tr.classList.add('line-moved'); setTimeout(() => tr.classList.remove('line-moved'), 700); }
+
+/* Glisser-déposer des lignes par la poignée ⋮⋮ (la phase choisie n'est pas modifiée par un déplacement manuel) */
+function wireLineDrag(tbody) {
+  let dragged = null;
+  tbody.addEventListener('dragstart', e => {
+    const grip = e.target.closest('.line-grip'); if (!grip) { e.preventDefault(); return; }
+    dragged = grip.closest('tr'); dragged.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', 'line'); } catch { /* ignore */ }
+  });
+  tbody.addEventListener('dragover', e => {
+    if (!dragged) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+    const over = e.target.closest('tr'); if (!over || over === dragged) return;
+    const box = over.getBoundingClientRect();
+    (e.clientY - box.top) < box.height / 2 ? over.before(dragged) : over.after(dragged);
+  });
+  tbody.addEventListener('drop', e => { e.preventDefault(); });
+  tbody.addEventListener('dragend', () => { if (dragged) { dragged.classList.remove('dragging'); flashRow(dragged); } dragged = null; });
 }
 
 function readLines(form) {

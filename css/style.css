@@ -233,6 +233,18 @@ body.modal-open { overflow: hidden; }
 .lines td { padding: 6px 8px; }
 .lines input, .lines select { padding: 7px 9px; border-radius: 10px; }
 .lines .del { color: var(--red); }
+.lines th:first-child, .lines .line-grip { width: 44px; padding-left: 6px; padding-right: 0; }
+.line-grip { cursor: grab; user-select: none; white-space: nowrap; color: var(--ink-2); }
+.line-grip:active { cursor: grabbing; }
+.line-grip .grip { font-size: 15px; letter-spacing: -3px; opacity: .55; vertical-align: middle; }
+.line-arrows { display: inline-flex; flex-direction: column; vertical-align: middle; margin-left: 2px; opacity: 0; transition: opacity .15s; }
+.lines tr:hover .line-arrows, .line-arrows:focus-within { opacity: 1; }
+.line-arrows button { border: none; background: transparent; font: inherit; font-size: 9px; line-height: 1; padding: 2px 4px; cursor: pointer; color: var(--ink-2); border-radius: 6px; }
+.line-arrows button:hover { background: var(--purple-pale); color: var(--purple-dk); }
+.lines tr.dragging { opacity: .35; }
+.lines tr.line-moved td { animation: line-moved .7s ease-out; }
+@keyframes line-moved { from { background: rgba(141,123,240,.22); } to { background: transparent; } }
+@media (pointer: coarse) { .line-arrows { opacity: 1; } }
 .lines-foot { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: rgba(239,234,254,.55); font-size: 13px; }
 .totals { margin-left: auto; width: 320px; max-width: 100%; }
 .totals div { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed var(--line); }
