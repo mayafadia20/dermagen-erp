@@ -108,13 +108,13 @@ export default {
     el.querySelector('[data-import]').addEventListener('change', async e => {
       const file = e.target.files[0]; if (!file) return;
       if (!await confirmDialog(`Importer « ${file.name} » ? Les données actuelles seront remplacées par celles de la sauvegarde.`, { label: 'Importer' })) { e.target.value = ''; return; }
-      try { await db.importJSON(await file.text()); toast('Sauvegarde importée'); ctx.navigate('dashboard'); }
+      try { await db.importJSON(await file.text()); toast('Sauvegarde importée'); ctx.navigate('formulations'); }
       catch (err) { toast('Fichier invalide : ' + err.message, 'err'); }
       e.target.value = '';
     });
     el.querySelector('[data-seed]').addEventListener('click', () => seedDemo());
     el.querySelector('[data-reset]').addEventListener('click', async () => {
-      if (await confirmDialog(isCloud() ? 'Effacer TOUTES les données de l’ERP dans la base en ligne, pour toute l’équipe ? Cette action est irréversible (exportez d’abord une sauvegarde).' : 'Effacer TOUTES les données de l’ERP dans ce navigateur ? Cette action est irréversible (exportez d’abord une sauvegarde).', { label: 'Tout effacer' })) { await db.reset(); toast('Données effacées'); ctx.navigate('dashboard'); }
+      if (await confirmDialog(isCloud() ? 'Effacer TOUTES les données de l’ERP dans la base en ligne, pour toute l’équipe ? Cette action est irréversible (exportez d’abord une sauvegarde).' : 'Effacer TOUTES les données de l’ERP dans ce navigateur ? Cette action est irréversible (exportez d’abord une sauvegarde).', { label: 'Tout effacer' })) { await db.reset(); toast('Données effacées'); ctx.navigate('formulations'); }
     });
   }
 };

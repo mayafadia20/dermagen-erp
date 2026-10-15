@@ -39,16 +39,8 @@ const F1_BASE = (enz) => [['keratinase', enz], ['glycerine', 0.3], ['pca', 2], [
 
 // Lignes : [clé ingrédient, %] ; l'eau complète à 100 (qsp) et n'est pas listée.
 export const RECIPES = [
-  { key: 'f1-legere', bottle: 'Flacon 1', variant: 'R-Légère', name: 'F1 Soin Enzymatique Assouplissant — R-Légère', phase: 'T', order: 1, lines: F1_BASE(0.3),
-    description: 'Flacon principal de la phase transformante. La kératinase affaiblit les liaisons kératiniques pour rendre la fibre malléable sans rupture permanente des ponts disulfures. Intensité légère : écart transformatif faible ou cheveux fragiles.',
-    usage: 'Verser dans le bol avec les boosters indiqués par le diagnostic. Application avec source de chaleur douce 40–50 °C pendant 20–30 min. pH cible 5,0–6,0.',
-    warning: 'Flacon opaque, airless : la kératinase se dégrade à la chaleur (> 55 °C) et à la lumière.' },
-  { key: 'f1-moyenne', bottle: 'Flacon 1', variant: 'R-Moyenne', name: 'F1 Soin Enzymatique Assouplissant — R-Moyenne', phase: 'T', order: 2, lines: F1_BASE(0.5),
-    description: 'Flacon principal de la phase transformante, intensité moyenne : écart transformatif modéré ou cheveux de diamètre moyen à épais.',
-    usage: 'Verser dans le bol avec les boosters indiqués par le diagnostic. Application avec source de chaleur douce 40–50 °C pendant 20–30 min. pH cible 5,0–6,0.',
-    warning: 'Flacon opaque, airless : la kératinase se dégrade à la chaleur (> 55 °C) et à la lumière.' },
-  { key: 'f1-intense', bottle: 'Flacon 1', variant: 'R-Intense', name: 'F1 Soin Enzymatique Assouplissant — R-Intense', phase: 'T', order: 3, lines: F1_BASE(0.8),
-    description: 'Flacon principal de la phase transformante, intensité forte : écart transformatif important ou cheveux épais et résistants, porosité faible à moyenne.',
+  { key: 'f1-moyenne', bottle: 'Flacon 1', variant: 'Principal', name: 'F1 Soin Enzymatique Assouplissant', phase: 'T', order: 1, lines: F1_BASE(0.5),
+    description: 'Flacon principal de la phase transformante. La kératinase affaiblit les liaisons kératiniques pour rendre la fibre malléable sans rupture permanente des ponts disulfures. L’intensité se règle par le temps de pose et les boosters du diagnostic.',
     usage: 'Verser dans le bol avec les boosters indiqués par le diagnostic. Application avec source de chaleur douce 40–50 °C pendant 20–30 min. pH cible 5,0–6,0.',
     warning: 'Flacon opaque, airless : la kératinase se dégrade à la chaleur (> 55 °C) et à la lumière.' },
   { key: 'f2', bottle: 'Flacon 2', variant: 'Adjuvant', name: 'F2 Booster Protéique', phase: 'T', order: 4, lines: [['keratine', 12], ['soie', 5], ['ble', 5], ['panthenol', 3], ['aloe', 10]],
@@ -83,8 +75,11 @@ const F1_STEPS = [
   'Ajouter la kératinase en dernier, à froid, sous agitation douce.',
   'Mesurer pH, viscosité et aspect, puis conditionner en flacon opaque airless.',
 ];
+/** Fiches retirées du cahier de charge : leurs formulations sont rattachées à la fiche indiquée. */
+const RETIRED = { 'f1-legere': 'f1-moyenne', 'f1-intense': 'f1-moyenne' };
+
 const STEPS_BY_KEY = {
-  'f1-legere': F1_STEPS, 'f1-moyenne': F1_STEPS, 'f1-intense': F1_STEPS,
+  'f1-moyenne': F1_STEPS,
   f2: ['Mélanger l’eau et le gel d’aloe vera à froid.', 'Ajouter la kératine, la soie et les protéines de blé hydrolysées sous agitation.', 'Ajouter le panthénol.', 'Mesurer le pH et l’ajuster à 4,5–5,5.', 'Mesurer l’aspect et conditionner.'],
   f3: ['Chauffer le beurre de karité, l’huile d’argan et l’alcool cétéarylique à 70–75 °C (phase B).', 'Chauffer l’eau à 70–75 °C (phase A).', 'Verser la phase B dans la phase A sous agitation forte et émulsionner 3 minutes.', 'Refroidir sous agitation lente.', 'Ajouter les acides aminés de soie sous 40 °C.', 'Mesurer pH, viscosité et aspect, puis conditionner.'],
   f4: ['Dissoudre l’acide citrique dans l’eau.', 'Ajouter l’acide glycolique sous agitation (gants, lunettes, hotte ou pièce ventilée).', 'Mesurer le pH et l’ajuster à 3,0–3,5.', 'Conditionner et étiqueter avec les mises en garde.'],
@@ -129,9 +124,23 @@ export function ensureRecipes() {
     }
     for (const r of RECIPES) {
       const found = db.all('recipes').find(x => x.key === r.key);
-      if (found) { if (!Array.isArray(found.steps)) db.update('recipes', found.id, { steps: defaultSteps(r.key) }); continue; }
+      if (found) {
+        const patch = {};
+        if (!Array.isArray(found.steps)) patch.steps = defaultSteps(r.key);
+        // Libellés et descriptions suivent le cahier de charge (ex. F1 devenue fiche unique)
+        for (const k of ['name', 'variant', 'bottle', 'description', 'order']) if (found[k] !== r[k]) patch[k] = r[k];
+        if (Object.keys(patch).length) db.update('recipes', found.id, patch);
+        continue;
+      }
       db.insert('recipes', { ...r, steps: defaultSteps(r.key), source: RECIPES_TAG });
       n++;
+    }
+    // Fiches retirées : rattacher leurs formulations à la fiche de remplacement, puis les supprimer
+    for (const r of db.all('recipes').slice()) {
+      const to = RETIRED[r.key]; if (!to) continue;
+      const keep = db.all('recipes').find(x => x.key === to);
+      db.all('formulations').filter(f => f.recipeId === r.id).forEach(f => db.update('formulations', f.id, { recipeId: keep ? keep.id : '' }));
+      db.remove('recipes', r.id);
     }
   } finally { seeding = false; }
   return n;

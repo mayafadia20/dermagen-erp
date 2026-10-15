@@ -6,7 +6,7 @@ import { importEssais, ESSAIS_TAG } from '../essais.js';
 import { currentUser } from '../auth.js';
 import { ensureRecipes, recipeLines, PHASE_LABEL } from '../recettes.js';
 import { currentUser as whoami } from '../auth.js';
-import { tasksEditor, wireTasksEditor, readTasks, syncTasks, tasksOf, tasksHtml, wireTasksList, taskSummary } from '../taches.js';
+import { tasksEditor, wireTasksEditor, readTasks, syncTasks, tasksOf, tasksHtml, wireTasksList, taskSummary, openTasks } from '../taches.js';
 
 export const STATUSES = ['En développement', 'En test', 'Validée', 'Abandonnée'];
 const STATUS_KIND = { 'En développement': 'blue', 'En test': 'amber', 'Validée': 'green', 'Abandonnée': 'grey' };
@@ -508,6 +508,9 @@ function renderRecipes(el, ctx) {
   const forms = db.all('formulations');
   const byRecipe = (id) => forms.filter(f => f.recipeId === id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const orphans = forms.filter(f => !f.recipeId).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const me = whoami()?.id;
+  const tasks = openTasks().sort((a, b) => ((a.assigneeId === me) === (b.assigneeId === me) ? 0 : a.assigneeId === me ? -1 : 1) || (a.due || '9999').localeCompare(b.due || '9999'));
+  const mine = tasks.filter(t => t.assigneeId === me);
   const card = (r) => {
     const list = byRecipe(r.id); const last = list[0];
     return `<a href="#/formulations/fiche-${r.id}" class="recipe-card phase-${r.phase}">
@@ -525,12 +528,17 @@ function renderRecipes(el, ctx) {
         <button class="btn primary" data-new>+ Formulation libre</button>
       </div>
     </div>
+    ${tasks.length ? `<div class="card" style="margin-top:18px">
+      <div class="card-head"><h3>Tâches à faire</h3><span class="muted">${mine.length ? `${mine.length} pour moi · ` : ''}${tasks.length} en tout</span></div>
+      <div data-tasks-list>${tasksHtml(tasks.slice(0, 8), { showFormulation: true })}</div>
+    </div>` : ''}
     ${['T', 'N'].map(ph => `<div class="week-head"><h3>${esc(PHASE_LABEL[ph])}</h3></div><div class="recipe-grid">${recipes.filter(r => r.phase === ph).map(card).join('')}</div>`).join('')}
     ${orphans.length ? `<div class="card" style="margin-top:22px">
       <div class="card-head"><h3>Formulations sans fiche théorique</h3><span class="muted">${orphans.length} essai(s) · rattache-les à une fiche via « Modifier »</span></div>
       ${formTable(orphans)}
     </div>` : ''}`;
   el.querySelector('[data-import-essais]')?.addEventListener('click', () => importEssais(ctx.navigate));
+  wireTasksList(el.querySelector('[data-tasks-list]'));
   el.querySelector('[data-new]').addEventListener('click', () => {
     if (!db.all('ingredients').length) return toast('Créez d’abord des ingrédients dans l’inventaire.', 'warn');
     openFormulationForm(null, id => ctx.navigate('formulations', id));

@@ -1,7 +1,6 @@
 // Point d'entrée : navigation, routage par hash, montage des modules.
 import { db } from './store.js';
 import { esc, toast } from './ui.js';
-import dashboard from './modules/dashboard.js';
 import ingredients from './modules/ingredients.js';
 import formulations from './modules/formulations.js';
 import suppliers from './modules/suppliers.js';
@@ -15,12 +14,11 @@ import chat from './modules/chat.js';
 import profile from './modules/profile.js';
 import { requireLogin, currentUser, firstName, initials, logout, installReadOnlyGuard, isAdmin } from './auth.js';
 import { assistantBusy } from './chimiste.js';
+import { runMigrations } from './migrations.js';
 
-const MODULES = { dashboard, ingredients, formulations, chat, suppliers, purchases, invoices, payments, passwords, accelerators, profile, settings };
+const MODULES = { ingredients, formulations, chat, suppliers, purchases, invoices, payments, passwords, accelerators, profile, settings };
 
 const NAV = [
-  { group: 'Vue d’ensemble' },
-  { id: 'dashboard', label: 'Tableau de bord', icon: '◫' },
   { group: 'Laboratoire' },
   { id: 'ingredients', label: 'Inventaire des ingrédients', icon: '⚗' },
   { id: 'formulations', label: 'Formulations', icon: '✦' },
@@ -44,9 +42,9 @@ const $ = (s, r = document) => r.querySelector(s);
 function parseHash() {
   const h = location.hash.replace(/^#\/?/, '');
   const [path, query = ''] = h.split('?');
-  const [view = 'dashboard', id = ''] = path.split('/');
+  const [view = 'formulations', id = ''] = path.split('/');
   const params = Object.fromEntries(new URLSearchParams(query));
-  return { view: MODULES[view] ? view : 'dashboard', id, params };
+  return { view: MODULES[view] ? view : 'formulations', id, params };
 }
 
 export function navigate(view, id = '', params = {}) {
@@ -106,7 +104,9 @@ async function boot() {
   await db.init();
   $('#splash').remove();
   await requireLogin();
-  try { await db.sync(); } catch (e) { console.warn(e); toast('Base en ligne injoignable : travail sur la copie locale, les modifications seront envoyées dès que possible.', 'warn'); }
+  let synced = false;
+  try { synced = await db.sync(); } catch (e) { console.warn(e); toast('Base en ligne injoignable : travail sur la copie locale, les modifications seront envoyées dès que possible.', 'warn'); }
+  try { runMigrations({ synced }); } catch (e) { console.error('Migration', e); }
   installReadOnlyGuard();
   paintUser();
   document.addEventListener('user-changed', paintUser);

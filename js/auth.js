@@ -73,7 +73,7 @@ export async function logout() {
   current = null;
   try { sessionStorage.removeItem(SESSION_KEY); localStorage.removeItem(SESSION_KEY); } catch (_) {}
   if (cloud.enabled()) { try { await cloud.signOut(); } catch (_) {} }
-  location.hash = '#/dashboard';
+  location.hash = '#/formulations';
   location.reload();
 }
 
@@ -192,7 +192,7 @@ function requireLoginCloud() {
           } else if (mode === 'recovery') {
             if (f.password.value !== f.confirm.value) throw new Error('Les deux mots de passe ne correspondent pas.');
             await cloud.updatePassword(f.password.value);
-            history.replaceState(null, '', location.pathname + '#/dashboard');
+            history.replaceState(null, '', location.pathname + '#/formulations');
             const s2 = await cloud.session(); const me = await profileFor(s2.user); unmount(el); resolve(me);
           }
         } catch (ex) { fail(ex.message || 'Erreur'); }

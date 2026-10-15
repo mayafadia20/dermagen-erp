@@ -85,5 +85,5 @@ export async function seedDemo() {
   db.insert('accelerators', { program: 'District 3 — Validation', organization: 'Université Concordia', type: 'Incubateur', status: 'À évaluer', priority: 'Basse', website: 'https://d3center.ca', deadline: addDays(t, 60), nextStep: 'Vérifier les critères d’admissibilité', journal: [{ date: t, text: 'Demande créée' }] });
 
   toast('Données de démonstration chargées');
-  location.hash = '#/dashboard';
+  location.hash = '#/formulations';
 }

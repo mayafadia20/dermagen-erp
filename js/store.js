@@ -30,7 +30,8 @@ export const DEFAULT_SETTINGS = {
   anthropicKey: '',
   chatModel: 'claude-opus-5-5',
   chatEffort: 'medium',
-  chatWeb: true
+  chatWeb: true,
+  migrationsDone: []
 };
 
 const state = {};
