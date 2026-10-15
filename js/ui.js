@@ -161,6 +161,38 @@ export function table({ columns, rows, empty = 'Aucun élément.', rowAttrs }) {
   </table></div>`;
 }
 
+/**
+ * Choix des colonnes d'un tableau, mémorisé dans ce navigateur (`localStorage`, clé `cols:<key>`).
+ * columns : [{ id, label, default: true|false, ... }]. Retourne { visible(), button(), wire(el, onChange) }.
+ */
+export function columnPicker(key, columns) {
+  const store = 'cols:' + key;
+  const read = () => { try { const v = JSON.parse(localStorage.getItem(store) || 'null'); return Array.isArray(v) ? v : null; } catch (_) { return null; } };
+  const save = (ids) => { try { localStorage.setItem(store, JSON.stringify(ids)); } catch (_) { /* navigation privée */ } };
+  const ids = () => read() || columns.filter(c => c.default !== false).map(c => c.id);
+  return {
+    visible() { const on = new Set(ids()); return columns.filter(c => on.has(c.id)); },
+    button() { return `<button type="button" class="icon-btn col-gear" data-col-gear title="Choisir les colonnes à afficher" aria-label="Colonnes">⚙</button>`; },
+    wire(el, onChange) {
+      const btn = el.querySelector('[data-col-gear]'); if (!btn) return;
+      let pop = null;
+      const close = () => { pop?.remove(); pop = null; document.removeEventListener('click', outside); };
+      const outside = (e) => { if (pop && !pop.contains(e.target) && e.target !== btn) close(); };
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (pop) return close();
+        const on = new Set(ids());
+        pop = document.createElement('div'); pop.className = 'col-pop';
+        pop.innerHTML = `<div class="col-pop-head">Colonnes affichées</div>${columns.map(c => `<label class="check"><input type="checkbox" value="${esc(c.id)}" ${on.has(c.id) ? 'checked' : ''}> ${esc(c.pickLabel || c.label || c.id)}</label>`).join('')}<div class="col-pop-foot"><button type="button" class="btn sm" data-col-reset>Réinitialiser</button></div>`;
+        btn.parentElement.style.position = 'relative'; btn.insertAdjacentElement('afterend', pop);
+        pop.addEventListener('change', () => { save([...pop.querySelectorAll('input:checked')].map(i => i.value)); onChange && onChange(); });
+        pop.querySelector('[data-col-reset]').addEventListener('click', () => { try { localStorage.removeItem(store); } catch (_) {} close(); onChange && onChange(); });
+        setTimeout(() => document.addEventListener('click', outside), 0);
+      });
+    }
+  };
+}
+
 export function matches(obj, q, keys) {
   if (!q) return true;
   const s = q.toLowerCase();

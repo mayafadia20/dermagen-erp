@@ -125,6 +125,18 @@ export function amazonInvoices() {
 
 export const amazonImported = () => db.all('invoices').some(i => i.importTag === AMAZON_TAG);
 
+/** Factures importées avant la séparation des colonnes : on renseigne commande, fournisseur et distributeur (idempotent). */
+export function upgradeAmazon() {
+  const data = new Map(amazonInvoices().map(i => [i.invoice, i]));
+  let n = 0;
+  for (const inv of db.all('invoices').slice()) {
+    if (inv.importTag !== AMAZON_TAG || inv.vendor) continue;
+    const src = data.get(inv.importKey); if (!src) continue;
+    try { db.update('invoices', inv.id, { supplierInvoiceNumber: '', orderNumber: src.order, vendor: src.lines[0]?.vendor || '', distributor: SUPPLIER_NAME, category: src.category, lines: src.lines }); n++; } catch (_) { break; }
+  }
+  return n;
+}
+
 function ensureSupplier() {
   const found = db.all('suppliers').find(s => (s.name || '').trim().toLowerCase() === SUPPLIER_NAME.toLowerCase());
   if (found) return found;
@@ -143,7 +155,7 @@ export async function importAmazon(navigate) {
   for (const i of todo) {
     const desc = i.lines.map(l => l.item).join(' · ');
     const rec = db.insert('invoices', {
-      number: i.invoice, supplierInvoiceNumber: `Commande ${i.order}`, supplierId: sup.id, purchaseId: '',
+      number: i.invoice, supplierInvoiceNumber: '', orderNumber: i.order, vendor: i.lines[0]?.vendor || '', distributor: SUPPLIER_NAME, supplierId: sup.id, purchaseId: '',
       date: i.date, dueDate: i.date, description: desc.length > 140 ? desc.slice(0, 137) + '…' : desc,
       subtotal: i.subtotal, shipping: i.shipping, applyTaxes: i.tps + i.tvq > 0, tps: i.tps, tvq: i.tvq, total: i.total,
       category: i.category, lines: i.lines,

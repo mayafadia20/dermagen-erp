@@ -435,3 +435,13 @@ body.login-open { overflow: hidden; }
 .task-assignee { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; white-space: nowrap; }
 .task-avatar { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 600; color: #fff; background: linear-gradient(135deg, var(--purple-lt), var(--purple-dk)); }
 @media (max-width: 700px) { .tasks-editor { grid-column: span 2; } .task-head { display: none; } .task-row { grid-template-columns: 34px 1fr 40px; } .task-row select, .task-row input[name=due] { grid-column: 2; } .task-item { flex-wrap: wrap; } }
+
+/* Sélecteur de colonnes (roue dentée à droite d'un tableau) */
+.col-gear-wrap { position: relative; display: inline-block; }
+.col-gear { font-size: 18px; }
+.col-pop { position: absolute; right: 0; top: 40px; z-index: 30; min-width: 220px; background: #fff; border-radius: 16px; box-shadow: 0 14px 40px rgba(60,40,120,.18); border: 1px solid rgba(255,255,255,.9); padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.col-pop-head { font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--grey-t); padding: 4px 6px 8px; }
+.col-pop .check { padding: 5px 6px; border-radius: 10px; font-size: 13.5px; }
+.col-pop .check:hover { background: var(--purple-pale); }
+.col-pop .check input { accent-color: var(--purple); width: 16px; height: 16px; }
+.col-pop-foot { padding: 8px 6px 2px; border-top: 1px solid var(--line); margin-top: 6px; }

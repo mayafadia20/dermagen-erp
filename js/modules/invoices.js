@@ -1,9 +1,9 @@
 // Factures fournisseurs : suivi des montants, échéances et paiements.
 import { db } from '../store.js';
-import { esc, money, dateFmt, today, addDays, daysUntil, toast, badge, openModal, confirmDialog, field, table, matches, statCard, num } from '../ui.js';
+import { esc, money, dateFmt, today, addDays, daysUntil, toast, badge, openModal, confirmDialog, field, table, matches, statCard, num, columnPicker, datalist } from '../ui.js';
 import { computeTaxes } from './purchases.js';
 import { openPaymentForm } from './payments.js';
-import { importAmazon, amazonImported } from '../amazon.js';
+import { importAmazon, amazonImported, upgradeAmazon } from '../amazon.js';
 
 export function invoicePaid(inv) {
   return db.all('payments').filter(p => p.invoiceId === inv.id).reduce((t, p) => t + (Number(p.amount) || 0), 0);
@@ -41,7 +41,12 @@ export function openInvoiceForm(existing, onDone, { fromPurchase } = {}) {
     body: `<div class="form-grid">
       ${field({ label: 'N° interne', name: 'number', value: inv.number, required: true, cols: 1 })}
       ${field({ label: 'N° de facture du fournisseur', name: 'supplierInvoiceNumber', value: inv.supplierInvoiceNumber, cols: 1 })}
-      ${field({ label: 'Fournisseur', name: 'supplierId', type: 'select', options: suppliers.map(s => [s.id, s.name]), value: inv.supplierId, required: true, cols: 2 })}
+      ${field({ label: 'N° de commande', name: 'orderNumber', value: inv.orderNumber, cols: 1, placeholder: 'ex. 701-1234567-1234567' })}
+      ${field({ label: 'Fournisseur (fiche)', name: 'supplierId', type: 'select', options: suppliers.map(s => [s.id, s.name]), value: inv.supplierId, required: true, cols: 1 })}
+      ${field({ label: 'Vendeur (si différent de la fiche)', name: 'vendor', value: inv.vendor, cols: 2, placeholder: 'ex. J & D TECH INC' })}
+      ${field({ label: 'Distributeur / plateforme', name: 'distributor', value: inv.distributor, cols: 1, placeholder: 'ex. Amazon.ca' })}
+      ${field({ label: 'Catégorie', name: 'category', value: inv.category, cols: 1, list: 'invoice-categories', placeholder: 'ex. Équipement de laboratoire' })}
+      ${datalist('invoice-categories', [...new Set(db.all('invoices').map(x => x.category).filter(Boolean))])}
       ${field({ label: 'Date de facture', name: 'date', type: 'date', value: inv.date, required: true, cols: 1 })}
       ${field({ label: 'Échéance', name: 'dueDate', type: 'date', value: inv.dueDate, required: true, cols: 1 })}
       ${field({ label: 'Bon de commande lié', name: 'purchaseId', type: 'select', options: [['', '— Aucun —'], ...purchases.map(p => [p.id, `${p.number} · ${money(p.total)}`])], value: inv.purchaseId, cols: 2 })}
@@ -77,11 +82,29 @@ export function openInvoiceForm(existing, onDone, { fromPurchase } = {}) {
 
 function renderList(el, ctx) {
   const q = ctx.params.q || '', st = ctx.params.status || '', yr = ctx.params.year || '';
+  try { upgradeAmazon(); } catch (_) { /* lecture seule */ }
   const all = db.all('invoices');
   const supName = (id) => db.get('suppliers', id)?.name || '—';
+  const vendorOf = (r) => r.vendor || supName(r.supplierId);
+  const COLS = [
+    { id: 'number', label: 'N°', render: r => `<span class="strong">${esc(r.number)}</span>${r.supplierInvoiceNumber ? `<div class="muted">${esc(r.supplierInvoiceNumber)}</div>` : ''}` },
+    { id: 'order', label: 'N° de commande', render: r => esc(r.orderNumber || '') },
+    { id: 'vendor', label: 'Fournisseur', render: r => esc(vendorOf(r)) },
+    { id: 'distributor', label: 'Distributeur', render: r => esc(r.distributor || '') },
+    { id: 'category', label: 'Catégorie', render: r => r.category ? badge(r.category, 'purple') : '' },
+    { id: 'description', label: 'Description', default: false, render: r => `<span class="muted">${esc(r.description || '')}</span>` },
+    { id: 'date', label: 'Date', render: r => dateFmt(r.date) },
+    { id: 'due', label: 'Échéance', default: false, render: r => dateFmt(r.dueDate) },
+    { id: 'total', label: 'Total', align: 'num', render: r => money(r.total) },
+    { id: 'paid', label: 'Payé', align: 'num', default: false, render: r => money(invoicePaid(r)) },
+    { id: 'balance', label: 'Solde', align: 'num', render: r => `<b>${money(invoiceBalance(r))}</b>` },
+    { id: 'status', label: 'Statut', render: r => { const s = invoiceStatus(r); return badge(s.label, s.kind); } },
+    { id: 'actions', label: '', pickLabel: 'Bouton « Payer »', render: r => invoiceBalance(r) > 0 && !r.cancelled ? `<div class="row-actions"><button class="btn" data-pay="${r.id}">Payer</button></div>` : '' },
+  ];
+  const picker = columnPicker('invoices', COLS);
   const years = [...new Set(all.map(i => (i.date || '').slice(0, 4)).filter(Boolean))].sort().reverse();
   let rows = all.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  rows = rows.filter(r => matches({ ...r, sup: supName(r.supplierId) }, q, ['number', 'supplierInvoiceNumber', 'sup', 'description', 'category']));
+  rows = rows.filter(r => matches({ ...r, sup: vendorOf(r) }, q, ['number', 'supplierInvoiceNumber', 'orderNumber', 'sup', 'distributor', 'description', 'category']));
   if (st) rows = rows.filter(r => invoiceStatus(r).key === st);
   if (yr) rows = rows.filter(r => (r.date || '').startsWith(yr));
   const shown = rows.filter(r => !r.cancelled).reduce((t, r) => t + (Number(r.total) || 0), 0);
@@ -105,23 +128,15 @@ function renderList(el, ctx) {
         <input type="search" class="search" data-search placeholder="Rechercher (n°, fournisseur, catégorie…)" value="${esc(q)}">
         ${years.length > 1 ? `<select data-year><option value="">Toutes les années</option>${years.map(y => `<option value="${y}" ${y === yr ? 'selected' : ''}>${y}</option>`).join('')}</select>` : ''}
         <select data-status><option value="">Tous les statuts</option>${[['open', 'À payer'], ['partial', 'Partiellement payée'], ['late', 'En retard'], ['paid', 'Payée'], ['cancelled', 'Annulée']].map(([k, l]) => `<option value="${k}" ${k === st ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <span class="spacer"></span>
+        <span class="col-gear-wrap">${picker.button()}</span>
       </div>
-      ${table({
-        columns: [
-          { label: 'N°', render: r => `<span class="strong">${esc(r.number)}</span>${r.supplierInvoiceNumber ? `<div class="muted">${esc(r.supplierInvoiceNumber)}</div>` : ''}` },
-          { label: 'Fournisseur', render: r => `${esc(supName(r.supplierId))}${r.category ? ` <span class="badge">${esc(r.category)}</span>` : ''}${r.description ? `<div class="muted">${esc(r.description)}</div>` : ''}` },
-          { label: 'Date', render: r => dateFmt(r.date) },
-          { label: 'Échéance', render: r => dateFmt(r.dueDate) },
-          { label: 'Total', align: 'num', render: r => money(r.total) },
-          { label: 'Payé', align: 'num', render: r => money(invoicePaid(r)) },
-          { label: 'Solde', align: 'num', render: r => `<b>${money(invoiceBalance(r))}</b>` },
-          { label: 'Statut', render: r => { const s = invoiceStatus(r); return badge(s.label, s.kind); } },
-          { label: '', render: r => invoiceBalance(r) > 0 && !r.cancelled ? `<div class="row-actions"><button class="btn" data-pay="${r.id}">Payer</button></div>` : '' },
-        ], rows, empty: all.length ? 'Aucune facture ne correspond.' : 'Aucune facture enregistrée.',
-        rowAttrs: r => `class="clickable" data-open="${r.id}"`
-      })}
+      <div data-table></div>
       ${rows.length ? `<div class="muted" style="text-align:right;margin-top:10px">${rows.length} facture(s) affichée(s)${yr ? ` pour ${esc(yr)}` : ''} · total taxes incluses <b>${money(shown)}</b></div>` : ''}
     </div>`;
+  const paintTable = () => { el.querySelector('[data-table]').innerHTML = table({ columns: picker.visible(), rows, empty: all.length ? 'Aucune facture ne correspond.' : 'Aucune facture enregistrée.', rowAttrs: r => `class="clickable" data-open="${r.id}"` }); };
+  paintTable();
+  picker.wire(el, paintTable);
   const go = (patch) => ctx.navigate('invoices', '', { q, status: st, year: yr, ...patch });
   el.querySelector('[data-year]')?.addEventListener('change', e => go({ year: e.target.value }));
   el.querySelector('[data-import-amazon]')?.addEventListener('click', () => importAmazon(ctx.navigate));
@@ -146,7 +161,7 @@ function renderDetail(el, ctx, inv) {
     <div class="card">
       <div class="page-head">
         <div><h2>${esc(inv.number)} ${badge(st.label, st.kind)}</h2>
-          <div class="subtitle">${sup ? `<a href="#/suppliers/${sup.id}">${esc(sup.name)}</a>` : 'Fournisseur inconnu'}${inv.supplierInvoiceNumber ? ' · n° fournisseur ' + esc(inv.supplierInvoiceNumber) : ''} · émise le ${dateFmt(inv.date)} · échéance ${dateFmt(inv.dueDate)}</div></div>
+          <div class="subtitle">${inv.vendor ? `<b>${esc(inv.vendor)}</b> · ` : ''}${sup ? `<a href="#/suppliers/${sup.id}">${esc(sup.name)}</a>` : 'Fournisseur inconnu'}${inv.distributor && inv.distributor !== sup?.name ? ' · via ' + esc(inv.distributor) : ''}${inv.orderNumber ? ' · commande ' + esc(inv.orderNumber) : ''}${inv.supplierInvoiceNumber ? ' · n° fournisseur ' + esc(inv.supplierInvoiceNumber) : ''} · émise le ${dateFmt(inv.date)} · échéance ${dateFmt(inv.dueDate)}${inv.category ? ' · ' + badge(inv.category, 'purple') : ''}</div></div>
         <div class="actions">
           ${invoiceBalance(inv) > 0 && !inv.cancelled ? '<button class="btn primary" data-pay>Enregistrer un paiement</button>' : ''}
           <button class="btn" data-edit>Modifier</button>
