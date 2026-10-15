@@ -62,7 +62,16 @@ function renderNav(active) {
 }
 
 let current = null;
+let rendering = false, renderAgain = false;
 function render() {
+  // Un changement de données émis pendant un rendu (ex. création des fiches) ne doit pas relancer un rendu
+  // imbriqué : on le note et on re-rend une fois, à la fin.
+  if (rendering) { renderAgain = true; return; }
+  rendering = true;
+  try { renderOnce(); } finally { rendering = false; }
+  if (renderAgain) { renderAgain = false; render(); }
+}
+function renderOnce() {
   const route = parseHash();
   if (route.view === 'settings' && !isAdmin()) route.view = 'profile';
   current = route;
@@ -109,7 +118,8 @@ async function boot() {
   db.on((col) => {
     if (col === 'chats' && current && current.view === 'chat') return;   // la discussion gère son propre affichage pendant une réponse
     if (col === 'recipes' && current && current.view === 'formulations' && (current.id || '').startsWith('fiche-')) return;   // la fiche mémorise sa recommandation sans se re-rendre
-    if (assistantBusy() && current && (current.view === 'chat' || (current.view === 'formulations' && (current.id || '').startsWith('fiche-')))) return;   // actions de l'assistante : la vue se met à jour elle-même
+    if (col === 'formulations' && formulations.quietUpdate()) return;   // la formulation mémorise son analyse / son fil sans se re-rendre
+    if (assistantBusy() && current && (current.view === 'chat' || (current.view === 'formulations' && current.id))) return;   // actions de l'assistante : la vue se met à jour elle-même
     if (document.body.classList.contains('modal-open')) dirty = true; else render();
   });
   document.addEventListener('modal-closed', () => { if (dirty && !document.body.classList.contains('modal-open')) { dirty = false; render(); } });

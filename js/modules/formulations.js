@@ -363,28 +363,22 @@ function renderDetail(el, ctx, f) {
         <div class="card-head" style="margin:18px 0 8px"><h3>Tâches</h3><span class="muted">${esc(taskSummary(tasksOf(f.id)))}</span></div>
         <div data-tasks-list>${tasksHtml(tasksOf(f.id))}</div>
       </div>
-      <div class="card">
-        <h3 style="margin-bottom:10px">Lots fabriqués</h3>
-        ${table({
-          columns: [
-            { label: 'Date', render: b => dateFmt(b.date) },
-            { label: 'Lot', key: 'lot' },
-            { label: 'Quantité', align: 'num', render: b => num(b.qty, 0) + ' g' },
-            { label: 'Coût', align: 'num', render: b => money(b.cost) },
-            { label: 'Remarques', key: 'notes' },
-          ], rows: (f.batches || []).slice().reverse(), empty: 'Aucun lot fabriqué pour cette formulation.'
-        })}
-        <h3 style="margin:16px 0 10px">Autres versions</h3>
-        ${table({
-          columns: [
-            { label: 'Code', render: v => `<a href="#/formulations/${v.id}">${esc(v.code)}</a>` },
-            { label: 'Version', align: 'num', render: v => 'v' + (v.version || 1) },
-            { label: 'Date', render: v => dateFmt(v.date) },
-            { label: 'Statut', render: v => badge(v.status, STATUS_KIND[v.status] || 'grey') },
-          ], rows: versions, empty: 'Aucune autre version liée.'
-        })}
+      <div class="card reco-card">
+        <div class="card-head"><h3><span class="reco-icon">⚗</span> Analyse de l’assistante chimiste</h3><div class="actions"><span class="muted" data-reco-date></span><button class="btn sm" data-reco-refresh title="Redemander une analyse à jour">Actualiser</button></div></div>
+        <div class="md reco-body" data-reco></div>
+        <div class="reco-thread" data-thread>${(f.thread || []).map(m => threadBubble(m)).join('')}</div>
+        <form class="reco-composer" data-reco-form>
+          <input name="q" placeholder="Pose une question sur cet essai, ou demande : « note les observations… », « écris les étapes… »" autocomplete="off">
+          <button type="submit" class="chat-send reco-send" title="Envoyer" aria-label="Envoyer">➤</button>
+        </form>
+        <div class="muted" style="font-size:12px;margin-top:10px">L’assistante analyse la composition réellement faite, le mode opératoire et les observations consignées, en les comparant à la fiche théorique et aux autres versions. La discussion reste enregistrée sur cette formulation. Elle ne remplace ni les tests ni l’évaluation de sécurité.</div>
+        ${(f.batches || []).length || versions.length ? `<div class="muted" style="font-size:12.5px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">${(f.batches || []).length ? `<b>Lots fabriqués :</b> ${f.batches.slice().reverse().map(b => `${esc(b.lot)} (${num(b.qty, 0)} g, ${dateFmt(b.date)})`).join(' · ')}` : ''}${(f.batches || []).length && versions.length ? '<br>' : ''}${versions.length ? `<b>Autres versions :</b> ${versions.map(v => `<a href="#/formulations/${v.id}">${esc(v.code)}</a> v${v.version || 1}`).join(' · ')}` : ''}</div>` : ''}
       </div>
     </div>`;
+  const target = formulationTarget(f);
+  loadRecommendation(target, el);
+  el.querySelector('[data-reco-refresh]').addEventListener('click', () => loadRecommendation(target, el, { force: true }));
+  wireThread(target, el, () => { const fresh = db.get('formulations', f.id); if (fresh) renderDetail(el, ctx, fresh); });
   el.querySelector('[data-edit]').addEventListener('click', () => openFormulationForm(f));
   wireTasksList(el.querySelector('[data-tasks-list]'));
   el.querySelector('[data-link]').addEventListener('click', () => {
@@ -405,26 +399,44 @@ function renderDetail(el, ctx, f) {
 }
 
 
-// ---------- Recommandation de l'assistante chimiste sur une fiche théorique ----------
+// ---------- Recommandation de l'assistante chimiste (fiche théorique ou formulation réelle) ----------
 import { ask, apiConfig, renderMarkdown } from '../chimiste.js';
+
+const hash = (src) => { let h = 5381; for (let i = 0; i < src.length; i++) h = ((h << 5) + h + src.charCodeAt(i)) | 0; return String(h); };
 
 function recoFingerprint(r) {
   const essais = db.all('formulations').filter(f => f.recipeId === r.id).map(f => f.id + ':' + (f.updatedAt || '')).join('|');
   const stock = recipeLines(r).map(l => { const i = db.get('ingredients', l.ingredientId); return i ? `${i.id}=${i.stock}` : '?'; }).join('|');
-  const src = JSON.stringify(r.lines) + '#' + essais + '#' + stock;
-  let h = 5381; for (let i = 0; i < src.length; i++) h = ((h << 5) + h + src.charCodeAt(i)) | 0;
-  return String(h);
+  return hash(JSON.stringify(r.lines) + '#' + essais + '#' + stock);
 }
 
 const RECO_PROMPT = (r) => `Donne ta recommandation pour la fiche théorique « ${r.name} » avant le prochain essai au laboratoire. Appuie-toi uniquement sur le contexte ERP fourni (formule théorique, stock, formulations réelles déjà faites avec leurs observations et commentaires). Structure en quatre points courts avec des titres en gras : 1) Faisabilité avec le stock actuel (ingrédients manquants ou insuffisants pour un lot de 100 g) ; 2) Points de vigilance de la formule (plages d’usage, compatibilités, pH, ordre d’addition, température) ; 3) Ce que les essais précédents suggèrent (s’il n’y en a pas, dis-le en une phrase) ; 4) Proposition concrète pour le prochain essai (ajustements de % ou de procédé, et quoi mesurer). Maximum 250 mots, pas de préambule, pas de recherche web.`;
 
+/** Analyse d'une formulation réelle : ce qui a été fait, comment, et ce qui a été observé. */
+const ANALYSIS_PROMPT = (f) => `Analyse la formulation réelle « ${f.code} — ${f.name} » (version ${f.version || 1}) telle qu’elle a été faite au laboratoire. Appuie-toi uniquement sur le contexte ERP fourni : sa composition réelle, son mode opératoire, ses observations et résultats (pH, viscosité, aspect, stabilité, commentaires pour la prochaine fois), la fiche théorique de référence si elle existe et les autres versions. Structure en quatre points courts avec des titres en gras : 1) Composition réalisée (équilibre des phases, pourcentages hors plage d’usage, écarts par rapport à la fiche théorique ou à la version précédente et leur effet probable) ; 2) Mode opératoire (ordre d’addition, températures, émulsification, ce qui manque ou ce qui est risqué ; s’il n’est pas renseigné, dis-le en une phrase) ; 3) Lecture des observations et résultats (ce qu’ils indiquent sur la formule et le procédé ; s’il n’y en a pas encore, dis quoi mesurer en priorité) ; 4) Recommandations pour la prochaine version (ajustements concrets de % ou de procédé, et quoi contrôler). Maximum 300 mots, pas de préambule, pas de recherche web.`;
+
+const recipeTarget = (r) => ({ col: 'recipes', rec: r, prompt: RECO_PROMPT, fp: recoFingerprint, askArgs: { recipeId: r.id } });
+const formulationTarget = (f) => ({
+  col: 'formulations', rec: f, prompt: ANALYSIS_PROMPT, askArgs: { formulationId: f.id, recipeId: f.recipeId || undefined },
+  fp: (x) => {
+    const ref = x.recipeId && db.get('recipes', x.recipeId);
+    const versions = db.all('formulations').filter(o => o.id !== x.id && (o.parentCode === x.code || x.parentCode === o.code)).map(o => o.id + ':' + (o.updatedAt || '')).join('|');
+    return hash(JSON.stringify([x.lines, stepsOf(x), x.ph, x.viscosity, x.aspect, x.stability, x.result, x.notes, x.objective, x.batchSize]) + '#' + (ref ? JSON.stringify([ref.lines, ref.steps]) : '') + '#' + versions);
+  }
+});
+
 let recoRunning = null;
-async function loadRecommendation(r, el, { force = false } = {}) {
+let quiet = 0;   // > 0 pendant les mises à jour silencieuses (recommandation, fil) : app.js ne re-rend pas la vue
+export const quietUpdate = () => quiet > 0;
+function saveQuiet(col, id, patch) { quiet++; try { return db.update(col, id, patch); } finally { quiet--; } }
+
+async function loadRecommendation(target, el, { force = false } = {}) {
+  const { col, rec: r } = target;
   const box = el.querySelector('[data-reco]'), when = el.querySelector('[data-reco-date]'), btn = el.querySelector('[data-reco-refresh]');
   if (!box) return;
   const cfg = apiConfig();
   if (!cfg.key) { box.innerHTML = `<div class="muted">Pour obtenir une recommandation, enregistre une clé API Claude dans <a href="#/settings">Paramètres → Assistante chimiste</a>.</div>`; return; }
-  const fp = recoFingerprint(r);
+  const fp = target.fp(r);
   const cached = r.reco;
   if (cached && cached.text && !force) {
     box.innerHTML = renderMarkdown(cached.text);
@@ -436,19 +448,50 @@ async function loadRecommendation(r, el, { force = false } = {}) {
   btn.disabled = true; when.textContent = 'Analyse en cours…';
   if (!cached || force) box.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
   try {
-    const res = await ask({ history: [{ role: 'user', content: RECO_PROMPT(r) }], recipeId: r.id, skill: 'chimiste', web: false, signal: ctrl.signal,
+    const res = await ask({ history: [{ role: 'user', content: target.prompt(r) }], ...target.askArgs, skill: 'chimiste', web: false, signal: ctrl.signal,
       onDelta: (_, acc) => { box.innerHTML = renderMarkdown(acc); } });
     if (ctrl.signal.aborted) return;
     box.innerHTML = renderMarkdown(res.text);
     const reco = { text: res.text, at: new Date().toISOString(), fp };
-    try { db.update('recipes', r.id, { reco }); r.reco = reco; } catch (_) { /* lecture seule : pas de mémorisation */ }
+    try { saveQuiet(col, r.id, { reco }); r.reco = reco; } catch (_) { /* lecture seule : pas de mémorisation */ }
     when.textContent = 'Générée à l’instant';
   } catch (e) {
     if (e.name !== 'AbortError') { box.innerHTML = `<div class="warnbox" style="margin:0">${esc(e.message || 'Erreur')}</div>`; when.textContent = ''; }
   } finally { if (recoRunning === ctrl) recoRunning = null; btn.disabled = false; }
 }
 
-// ---------- Fiches théoriques (cahier de charge) ----------
+/** Fil de discussion enregistré sur la fiche ou la formulation (`thread`), avec les outils de l'assistante. */
+function wireThread(target, el, onAction) {
+  const { col, rec: r } = target;
+  const thread = el.querySelector('[data-thread]'), rform = el.querySelector('[data-reco-form]');
+  if (!thread || !rform) return;
+  rform.addEventListener('submit', async e => {
+    e.preventDefault();
+    const q = rform.q.value.trim(); if (!q) return;
+    if (!apiConfig().key) return toast('Enregistre d’abord une clé API dans Paramètres → Assistante chimiste.', 'warn');
+    rform.q.value = ''; rform.q.disabled = true;
+    const now = new Date().toISOString();
+    const msgs = [...(r.thread || []), { role: 'user', content: q, at: now, by: whoami()?.name || '' }];
+    try { saveQuiet(col, r.id, { thread: msgs }); r.thread = msgs; } catch (_) { /* lecture seule */ }
+    thread.insertAdjacentHTML('beforeend', threadBubble(msgs[msgs.length - 1]));
+    const holder = document.createElement('div'); holder.className = 'msg assistant'; holder.innerHTML = `<div class="msg-avatar">⚗</div><div><div class="msg-body md"><span class="typing"><i></i><i></i><i></i></span></div><div class="msg-time"></div></div>`;
+    thread.appendChild(holder); holder.scrollIntoView({ block: 'nearest' });
+    const body = holder.querySelector('.msg-body');
+    let full = '', acted = false;
+    try {
+      const res = await ask({ history: msgs.map(m => ({ role: m.role, content: m.content })), ...target.askArgs, skill: 'chimiste', tools: true, onDelta: (_, acc) => { full = acc; body.innerHTML = renderMarkdown(acc); },
+        onAction: (a) => { if (a.ok) acted = true; } });
+      full = res.text || full; body.innerHTML = renderMarkdown(full);
+    } catch (err) { body.innerHTML = `<div class="warnbox" style="margin:0">${esc(err.message || 'Erreur')}</div>`; full = ''; }
+    finally {
+      rform.q.disabled = false; rform.q.focus();
+      holder.querySelector('.msg-time').textContent = new Date().toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' });
+      if (full) { const all = [...(db.get(col, r.id)?.thread || msgs), { role: 'assistant', content: full, at: new Date().toISOString() }]; try { saveQuiet(col, r.id, { thread: all }); r.thread = all; } catch (_) { /* lecture seule */ } }
+      if (acted && onAction) onAction();
+    }
+  });
+}
+
 function threadBubble(m) {
   const t = m.at ? new Date(m.at).toLocaleString('fr-CA', { dateStyle: 'short', timeStyle: 'short' }) : '';
   if (m.role === 'user') return `<div class="msg user"><div class="msg-body">${esc(m.content)}</div><div class="msg-time">${esc(m.by || '')} · ${t}</div></div>`;
@@ -557,8 +600,10 @@ function renderRecipe(el, ctx, r) {
       <div class="card-head"><h3>Formulations réelles</h3><span class="muted">Chaque essai garde ses observations, ses résultats et les commentaires pour la prochaine fois.</span></div>
       <div data-real-list>${formTable(list)}</div>
     </div>`;
-  loadRecommendation(r, el);
-  el.querySelector('[data-reco-refresh]').addEventListener('click', () => loadRecommendation(r, el, { force: true }));
+  const target = recipeTarget(r);
+  loadRecommendation(target, el);
+  el.querySelector('[data-reco-refresh]').addEventListener('click', () => loadRecommendation(target, el, { force: true }));
+  wireThread(target, el, refreshRecipeView);
   // Étapes du mode opératoire
   const stepsView = el.querySelector('[data-steps-view]');
   const saveSteps = (steps) => { db.update('recipes', r.id, { steps }); r.steps = steps; stepsView.innerHTML = stepsHtml(steps, { editable: true }); };
@@ -568,38 +613,13 @@ function renderRecipe(el, ctx, r) {
     const ed = e.target.closest('[data-edit-step]');
     if (ed) { const i = +ed.dataset.editStep; openModal({ title: `Étape ${i + 1}`, body: `<div class="form-grid">${field({ label: 'Texte de l’étape', name: 'text', type: 'textarea', rows: 3, value: r.steps[i], required: true, cols: 4 })}</div>`, onSubmit(d) { const steps = r.steps.slice(); steps[i] = d.text.trim(); saveSteps(steps); } }); }
   });
-  // Fil de discussion sur la fiche
-  const thread = el.querySelector('[data-thread]'), rform = el.querySelector('[data-reco-form]');
-  rform.addEventListener('submit', async e => {
-    e.preventDefault();
-    const q = rform.q.value.trim(); if (!q) return;
-    if (!apiConfig().key) return toast('Enregistre d’abord une clé API dans Paramètres → Assistante chimiste.', 'warn');
-    rform.q.value = ''; rform.q.disabled = true;
-    const now = new Date().toISOString();
-    const msgs = [...(r.thread || []), { role: 'user', content: q, at: now, by: whoami()?.name || '' }];
-    db.update('recipes', r.id, { thread: msgs }); r.thread = msgs;
-    thread.insertAdjacentHTML('beforeend', threadBubble(msgs[msgs.length - 1]));
-    const holder = document.createElement('div'); holder.className = 'msg assistant'; holder.innerHTML = `<div class="msg-avatar">⚗</div><div><div class="msg-body md"><span class="typing"><i></i><i></i><i></i></span></div><div class="msg-time"></div></div>`;
-    thread.appendChild(holder); holder.scrollIntoView({ block: 'nearest' });
-    const body = holder.querySelector('.msg-body');
-    let full = '';
-    try {
-      const res = await ask({ history: msgs.map(m => ({ role: m.role, content: m.content })), recipeId: r.id, skill: 'chimiste', tools: true, onDelta: (_, acc) => { full = acc; body.innerHTML = renderMarkdown(acc); },
-        onAction: (a) => { if (a.ok && a.name !== 'enregistrer_observations') refreshRecipeView(); } });
-      full = res.text || full; body.innerHTML = renderMarkdown(full);
-    } catch (err) { body.innerHTML = `<div class="warnbox" style="margin:0">${esc(err.message || 'Erreur')}</div>`; full = ''; }
-    finally {
-      rform.q.disabled = false; rform.q.focus();
-      holder.querySelector('.msg-time').textContent = new Date().toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' });
-      if (full) { const all = [...(db.get('recipes', r.id)?.thread || msgs), { role: 'assistant', content: full, at: new Date().toISOString() }]; db.update('recipes', r.id, { thread: all }); r.thread = all; }
-    }
-  });
   const create = () => openFormulationForm(null, id => ctx.navigate('formulations', id), { fromRecipe: r });
   el.querySelector('[data-create]').addEventListener('click', create);
   el.addEventListener('click', e => { const tr = e.target.closest('tr[data-open]'); if (tr) ctx.navigate('formulations', tr.dataset.open); });
 }
 
 export default {
+  quietUpdate,
   title: 'Formulations',
   render(el, ctx) {
     ensureRecipes();
