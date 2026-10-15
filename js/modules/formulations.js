@@ -514,15 +514,14 @@ function renderRecipes(el, ctx) {
   const card = (r) => {
     const list = byRecipe(r.id); const last = list[0];
     return `<a href="#/formulations/fiche-${r.id}" class="recipe-card phase-${r.phase}">
-      <div class="recipe-tags"><span class="badge ${r.phase === 'T' ? 'purple' : 'green'}">${esc(r.bottle)}</span><span class="badge">${esc(r.variant)}</span></div>
+      <div class="recipe-tags"><span class="badge ${r.phase === 'T' ? 'purple' : 'green'}">${esc(r.bottle)}</span>${r.variant ? `<span class="badge">${esc(r.variant)}</span>` : ''}</div>
       <div class="recipe-name">${esc(r.name)}</div>
-      <div class="recipe-desc">${esc((r.description || '').slice(0, 120))}${(r.description || '').length > 120 ? '…' : ''}</div>
       <div class="recipe-foot"><span>${list.length} formulation${list.length > 1 ? 's' : ''} réelle${list.length > 1 ? 's' : ''}</span>${last ? badge(last.status, STATUS_KIND[last.status] || 'grey') : '<span class="muted">aucun essai</span>'}</div>
     </a>`;
   };
   el.innerHTML = `
     <div class="page-head">
-      <div><h2>Fiches théoriques de la gamme</h2><div class="subtitle">Cahier de charge DermaGen v1.0 · Choisis une fiche pour voir la formule de référence et créer une formulation réelle à partir d’elle.</div></div>
+      <div><h2>Fiches théoriques de la gamme</h2></div>
       <div class="actions">
         ${forms.some(f => f.importTag === ESSAIS_TAG) ? '' : '<button class="btn" data-import-essais title="Document « Calcul et quantités » : Booster Activation, Phase Transformante T1 à T4, Booster lipidique">Importer les essais du document</button>'}
         <button class="btn primary" data-new>+ Formulation libre</button>
@@ -569,13 +568,10 @@ function renderRecipe(el, ctx, r) {
     <a href="#/formulations" class="back">← Toutes les fiches</a>
     <div class="card">
       <div class="page-head">
-        <div><div class="recipe-tags" style="margin-bottom:6px"><span class="badge ${r.phase === 'T' ? 'purple' : 'green'}">${esc(PHASE_LABEL[r.phase] || r.phase)}</span><span class="badge">${esc(r.bottle)} · ${esc(r.variant)}</span></div>
-          <h2>${esc(r.name)}</h2><div class="subtitle">Fiche théorique · cahier de charge v1.0 · ${list.length} formulation${list.length > 1 ? 's' : ''} réelle${list.length > 1 ? 's' : ''}</div></div>
+        <div><div class="recipe-tags" style="margin-bottom:6px"><span class="badge ${r.phase === 'T' ? 'purple' : 'green'}">${esc(PHASE_LABEL[r.phase] || r.phase)}</span></div>
+          <h2>${esc(r.name)}</h2></div>
         <div class="actions"><button class="btn primary" data-create>+ Créer une formulation à partir de cette fiche</button></div>
       </div>
-      ${r.description ? `<p style="margin:0 0 10px">${esc(r.description)}</p>` : ''}
-      ${r.usage ? `<div class="info"><b>Utilisation :</b> ${esc(r.usage)}</div>` : ''}
-      ${r.warning ? `<div class="warnbox">${esc(r.warning)}</div>` : ''}
       <h3 style="margin-bottom:10px">Formule théorique (pour 100 g)</h3>
       ${table({
         columns: [
@@ -585,7 +581,6 @@ function renderRecipe(el, ctx, r) {
           { label: 'Rôle', key: 'role' },
           { label: '%', align: 'num', render: l => num(l.pct, 2) + ' %' },
           { label: 'Quantité pour 100 g', align: 'num', render: l => num(l.pct, 2) + ' g' },
-          { label: 'Stock', align: 'num', render: l => { const i = db.get('ingredients', l.ingredientId); if (!i) return '—'; const ok = (Number(i.stock) || 0) > 0; return `<span class="${ok ? '' : 'pct-bad'}">${num(i.stock, 3)} ${esc(i.unit)}</span>`; } },
         ], rows: lines
       })}
     </div>
