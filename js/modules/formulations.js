@@ -514,7 +514,7 @@ function renderRecipes(el, ctx) {
   const card = (r) => {
     const list = byRecipe(r.id); const last = list[0];
     return `<a href="#/formulations/fiche-${r.id}" class="recipe-card phase-${r.phase}">
-      <div class="recipe-tags"><span class="badge ${r.phase === 'T' ? 'purple' : 'green'}">${esc(r.bottle)}</span>${r.variant ? `<span class="badge">${esc(r.variant)}</span>` : ''}</div>
+      <div class="recipe-tags"><span class="badge ${r.phase === 'T' ? 'purple' : 'green'}">${esc(r.bottle)}</span></div>
       <div class="recipe-name">${esc(r.name)}</div>
       <div class="recipe-foot"><span>${list.length} formulation${list.length > 1 ? 's' : ''} réelle${list.length > 1 ? 's' : ''}</span>${last ? badge(last.status, STATUS_KIND[last.status] || 'grey') : '<span class="muted">aucun essai</span>'}</div>
     </a>`;
