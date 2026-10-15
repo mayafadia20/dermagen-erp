@@ -3,6 +3,7 @@ import { db } from '../store.js';
 import { esc, money, dateFmt, today, addDays, daysUntil, toast, badge, openModal, confirmDialog, field, table, matches, statCard, num } from '../ui.js';
 import { computeTaxes } from './purchases.js';
 import { openPaymentForm } from './payments.js';
+import { importAmazon, amazonImported } from '../amazon.js';
 
 export function invoicePaid(inv) {
   return db.all('payments').filter(p => p.invoiceId === inv.id).reduce((t, p) => t + (Number(p.amount) || 0), 0);
@@ -75,12 +76,15 @@ export function openInvoiceForm(existing, onDone, { fromPurchase } = {}) {
 }
 
 function renderList(el, ctx) {
-  const q = ctx.params.q || '', st = ctx.params.status || '';
+  const q = ctx.params.q || '', st = ctx.params.status || '', yr = ctx.params.year || '';
   const all = db.all('invoices');
   const supName = (id) => db.get('suppliers', id)?.name || '—';
+  const years = [...new Set(all.map(i => (i.date || '').slice(0, 4)).filter(Boolean))].sort().reverse();
   let rows = all.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  rows = rows.filter(r => matches({ ...r, sup: supName(r.supplierId) }, q, ['number', 'supplierInvoiceNumber', 'sup', 'description']));
+  rows = rows.filter(r => matches({ ...r, sup: supName(r.supplierId) }, q, ['number', 'supplierInvoiceNumber', 'sup', 'description', 'category']));
   if (st) rows = rows.filter(r => invoiceStatus(r).key === st);
+  if (yr) rows = rows.filter(r => (r.date || '').startsWith(yr));
+  const shown = rows.filter(r => !r.cancelled).reduce((t, r) => t + (Number(r.total) || 0), 0);
   const active = all.filter(i => !i.cancelled);
   const due = active.reduce((t, i) => t + invoiceBalance(i), 0);
   const late = active.filter(i => invoiceStatus(i).key === 'late');
@@ -95,16 +99,17 @@ function renderList(el, ctx) {
     <div class="card">
       <div class="page-head">
         <div><h2>Factures fournisseurs</h2><div class="subtitle">Comptes à payer</div></div>
-        <div class="actions"><button class="btn primary" data-new>+ Nouvelle facture</button></div>
+        <div class="actions">${amazonImported() ? '' : '<button class="btn" data-import-amazon title="Document « Dépenses totales Amazon » 2024–2026">Importer les dépenses Amazon</button>'}<button class="btn primary" data-new>+ Nouvelle facture</button></div>
       </div>
       <div class="toolbar">
-        <input type="search" class="search" data-search placeholder="Rechercher (n°, fournisseur…)" value="${esc(q)}">
+        <input type="search" class="search" data-search placeholder="Rechercher (n°, fournisseur, catégorie…)" value="${esc(q)}">
+        ${years.length > 1 ? `<select data-year><option value="">Toutes les années</option>${years.map(y => `<option value="${y}" ${y === yr ? 'selected' : ''}>${y}</option>`).join('')}</select>` : ''}
         <select data-status><option value="">Tous les statuts</option>${[['open', 'À payer'], ['partial', 'Partiellement payée'], ['late', 'En retard'], ['paid', 'Payée'], ['cancelled', 'Annulée']].map(([k, l]) => `<option value="${k}" ${k === st ? 'selected' : ''}>${l}</option>`).join('')}</select>
       </div>
       ${table({
         columns: [
           { label: 'N°', render: r => `<span class="strong">${esc(r.number)}</span>${r.supplierInvoiceNumber ? `<div class="muted">${esc(r.supplierInvoiceNumber)}</div>` : ''}` },
-          { label: 'Fournisseur', render: r => `${esc(supName(r.supplierId))}${r.description ? `<div class="muted">${esc(r.description)}</div>` : ''}` },
+          { label: 'Fournisseur', render: r => `${esc(supName(r.supplierId))}${r.category ? ` <span class="badge">${esc(r.category)}</span>` : ''}${r.description ? `<div class="muted">${esc(r.description)}</div>` : ''}` },
           { label: 'Date', render: r => dateFmt(r.date) },
           { label: 'Échéance', render: r => dateFmt(r.dueDate) },
           { label: 'Total', align: 'num', render: r => money(r.total) },
@@ -115,8 +120,11 @@ function renderList(el, ctx) {
         ], rows, empty: all.length ? 'Aucune facture ne correspond.' : 'Aucune facture enregistrée.',
         rowAttrs: r => `class="clickable" data-open="${r.id}"`
       })}
+      ${rows.length ? `<div class="muted" style="text-align:right;margin-top:10px">${rows.length} facture(s) affichée(s)${yr ? ` pour ${esc(yr)}` : ''} · total taxes incluses <b>${money(shown)}</b></div>` : ''}
     </div>`;
-  const go = (patch) => ctx.navigate('invoices', '', { q, status: st, ...patch });
+  const go = (patch) => ctx.navigate('invoices', '', { q, status: st, year: yr, ...patch });
+  el.querySelector('[data-year]')?.addEventListener('change', e => go({ year: e.target.value }));
+  el.querySelector('[data-import-amazon]')?.addEventListener('click', () => importAmazon(ctx.navigate));
   el.querySelector('[data-search]').addEventListener('change', e => go({ q: e.target.value }));
   el.querySelector('[data-status]').addEventListener('change', e => go({ status: e.target.value }));
   el.querySelector('[data-new]').addEventListener('click', () => openInvoiceForm(null, id => ctx.navigate('invoices', id)));
@@ -161,6 +169,15 @@ function renderDetail(el, ctx, inv) {
           <div><span>Solde restant</span><span class="${invoiceBalance(inv) > 0 ? 'pct-bad' : 'pct-ok'}">${money(invoiceBalance(inv))}</span></div>
         </div>
       </div>
+      ${(inv.lines || []).length ? `<h3 style="margin:16px 0 10px">Articles (${inv.lines.length})</h3>${table({ columns: [
+        { label: 'Article', render: l => `${esc(l.item)}${l.vendor ? `<div class="muted">${esc(l.vendor)}${l.asin ? ' · ' + esc(l.asin) : ''}</div>` : ''}` },
+        { label: 'Catégorie', render: l => l.category ? badge(l.category, 'purple') : '' },
+        { label: 'Qté', align: 'num', render: l => num(l.qty, 0) },
+        { label: 'Prix unitaire', align: 'num', render: l => money(l.unitPrice) + (l.discount ? `<div class="muted">remise ${money(l.discount)}</div>` : '') },
+        { label: 'Avant taxes', align: 'num', render: l => money(l.subtotal) },
+        { label: 'Taxes', align: 'num', render: l => money((Number(l.tps) || 0) + (Number(l.tvq) || 0)) },
+        { label: 'Total', align: 'num', render: l => `<b>${money(l.total)}</b>` },
+      ], rows: inv.lines })}` : ''}
       ${inv.notes ? `<p style="margin-top:14px;white-space:pre-wrap">${esc(inv.notes)}</p>` : ''}
     </div>
     <div class="card">
