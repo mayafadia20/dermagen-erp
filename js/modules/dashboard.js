@@ -4,6 +4,8 @@ import { esc, money, num, dateFmt, today, isoWeek, daysUntil, badge, table, stat
 import { stockStatus, inventoryValue } from './ingredients.js';
 import { invoiceStatus, invoiceBalance } from './invoices.js';
 import { seedDemo } from '../seed.js';
+import { openTasks, tasksHtml, wireTasksList } from '../taches.js';
+import { currentUser } from '../auth.js';
 
 export default {
   title: 'Tableau de bord',
@@ -19,6 +21,9 @@ export default {
     const accs = db.all('accelerators').filter(a => ['À évaluer', 'En préparation', 'Soumise', 'Entrevue / sélection'].includes(a.status)).sort((a, b) => (a.deadline || '9999').localeCompare(b.deadline || '9999'));
     const recentForms = forms.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 6);
     const empty = !ings.length && !forms.length && !db.all('suppliers').length;
+    const me = currentUser()?.id;
+    const tasks = openTasks().sort((a, b) => ((a.assigneeId === me) === (b.assigneeId === me) ? 0 : a.assigneeId === me ? -1 : 1) || (a.due || '9999').localeCompare(b.due || '9999'));
+    const mine = tasks.filter(t => t.assigneeId === me);
 
     el.innerHTML = `
       ${empty ? `<div class="card"><h2>Bienvenue dans l’ERP DermaGen</h2><p style="margin-top:8px">Commencez par créer vos <a href="#/suppliers">fournisseurs</a> et vos <a href="#/ingredients">ingrédients</a>, puis consignez vos <a href="#/formulations">formulations hebdomadaires</a>. Vous pouvez aussi charger un jeu de données de démonstration pour explorer l’outil.</p><p><button class="btn primary" data-seed>Charger des données de démonstration</button></p></div>` : ''}
@@ -31,6 +36,10 @@ export default {
         ${statCard('Factures en retard', late.length, money(late.reduce((t, i) => t + invoiceBalance(i), 0)), late.length ? 'danger' : 'good')}
       </div>
       <div class="grid two">
+        <div class="card">
+          <div class="card-head"><h3>Tâches à faire</h3><span class="muted">${mine.length ? `${mine.length} pour moi · ` : ''}${tasks.length} en tout</span></div>
+          <div data-tasks-list>${tasksHtml(tasks.slice(0, 8), { showFormulation: true, empty: 'Aucune tâche en cours. Elles se créent depuis une formulation.' })}</div>
+        </div>
         <div class="card">
           <div class="card-head"><h3>Alertes d’inventaire</h3><a href="#/ingredients?only=alert" class="muted">Tout voir →</a></div>
           ${table({ columns: [
@@ -75,5 +84,6 @@ export default {
         </div>
       </div>`;
     el.querySelector('[data-seed]')?.addEventListener('click', () => seedDemo());
+    wireTasksList(el.querySelector('[data-tasks-list]'));
   }
 };

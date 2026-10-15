@@ -6,6 +6,7 @@ import { importEssais, ESSAIS_TAG } from '../essais.js';
 import { currentUser } from '../auth.js';
 import { ensureRecipes, recipeLines, PHASE_LABEL } from '../recettes.js';
 import { currentUser as whoami } from '../auth.js';
+import { tasksEditor, wireTasksEditor, readTasks, syncTasks, tasksOf, tasksHtml, wireTasksList, taskSummary } from '../taches.js';
 
 export const STATUSES = ['En développement', 'En test', 'Validée', 'Abandonnée'];
 const STATUS_KIND = { 'En développement': 'blue', 'En test': 'amber', 'Validée': 'green', 'Abandonnée': 'grey' };
@@ -79,7 +80,7 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
   const ingredients = db.all('ingredients').filter(i => i.category !== 'Matériel de laboratoire').slice().sort((a, b) => a.name.localeCompare(b.name));
   const sheet = fromRecipe || (existing?.recipeId ? db.get('recipes', existing.recipeId) : null) || (duplicateFrom?.recipeId ? db.get('recipes', duplicateFrom.recipeId) : null);
   const sheetIds = new Set(sheet ? recipeLines(sheet).map(l => l.ingredientId) : []);
-  const base = duplicateFrom ? { ...duplicateFrom, id: undefined, code: nextCode(today()), date: today(), version: (Number(duplicateFrom.version) || 1) + 1, status: 'En développement', parentCode: duplicateFrom.code, result: '', notes: '' } : null;
+  const base = duplicateFrom ? { ...duplicateFrom, id: undefined, code: nextCode(today()), date: today(), version: (Number(duplicateFrom.version) || 1) + 1, status: 'En développement', parentCode: duplicateFrom.code, notes: '' } : null;
   const f = base || fromR || existing || { code: nextCode(today()), date: today(), version: 1, status: STATUSES[0], productType: s.productTypes[0], batchSize: 100, lines: [{ phase: 'A' }, { phase: 'A' }, { phase: 'B' }] };
   const m = openModal({
     title: fromR ? `Nouvelle formulation — ${fromRecipe.name}` : base ? `Nouvelle version de ${duplicateFrom.code}` : existing ? 'Modifier la formulation' : 'Nouvelle formulation', wide: true,
@@ -105,7 +106,8 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
       ${field({ label: 'Viscosité / texture', name: 'viscosity', value: f.viscosity, cols: 1 })}
       ${field({ label: 'Aspect / odeur', name: 'aspect', value: f.aspect, cols: 1 })}
       ${field({ label: 'Stabilité', name: 'stability', value: f.stability, cols: 1, placeholder: 'ex. Stable 4 sem. à 40 °C' })}
-      ${field({ label: 'Résultats des tests (cheveux, salon, panel)', name: 'result', type: 'textarea', rows: 3, value: f.result, cols: 4 })}
+      <div class="form-section">Tâches à créer et à assigner</div>
+      ${tasksEditor(existing ? tasksOf(existing.id) : [], { fresh: !existing })}
       ${field({ label: 'Commentaires pour la prochaine fois', name: 'notes', type: 'textarea', rows: 2, value: f.notes, cols: 4, placeholder: 'ex. Réduire le BTMS-50 à 3 %, mesurer le pH à froid, lancer le test 40 °C' })}
       ${field({ label: 'Formulateur·rice', name: 'author', value: f.author || (existing ? '' : currentUser()?.name || ''), cols: 2 })}
     </div>`,
@@ -116,12 +118,14 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
       data.lines = lines; data.batchSize = Number(data.batchSize) || 100; data.version = Number(data.version) || 1;
       data.steps = readSteps(form); data.procedure = data.steps.join('\n');
       data.weekKey = isoWeek(data.date).key;
-      if (existing) { db.update('formulations', existing.id, data); toast('Formulation mise à jour'); onDone && onDone(existing.id); }
-      else { if (base) data.parentCode = base.parentCode; const rec = db.insert('formulations', data); toast('Formulation créée'); onDone && onDone(rec.id); }
+      const tasks = readTasks(form);
+      if (existing) { db.update('formulations', existing.id, data); const n = syncTasks(existing.id, tasks); toast('Formulation mise à jour' + (n.created ? ` · ${n.created} tâche(s) créée(s)` : '')); onDone && onDone(existing.id); }
+      else { if (base) data.parentCode = base.parentCode; const rec = db.insert('formulations', data); const n = syncTasks(rec.id, tasks); toast('Formulation créée' + (n.created ? ` · ${n.created} tâche(s) assignée(s)` : '')); onDone && onDone(rec.id); }
     }
   });
   const form = m.form;
   wireStepsEditor(form);
+  wireTasksEditor(form);
   const tbody = form.querySelector('[data-lines]');
   const recalc = (e) => {
     const batch = Number(form.querySelector('[name=batchSize]').value) || 100;
@@ -353,10 +357,11 @@ function renderDetail(el, ctx, f) {
           <div><dt>Aspect / odeur</dt><dd>${esc(f.aspect || '—')}</dd></div>
           <div><dt>Stabilité</dt><dd>${esc(f.stability || '—')}</dd></div>
         </dl>
-        <h3 style="margin:16px 0 8px">Résultats des tests</h3>
-        <p style="white-space:pre-wrap">${esc(f.result || 'Aucun résultat consigné.')}</p>
+        ${f.result ? `<h3 style="margin:16px 0 8px">Résultats des tests</h3><p style="white-space:pre-wrap">${esc(f.result)}</p>` : ''}
         <h3 style="margin:16px 0 8px">Commentaires pour la prochaine fois</h3>
         <p style="white-space:pre-wrap">${esc(f.notes || '—')}</p>
+        <div class="card-head" style="margin:18px 0 8px"><h3>Tâches</h3><span class="muted">${esc(taskSummary(tasksOf(f.id)))}</span></div>
+        <div data-tasks-list>${tasksHtml(tasksOf(f.id))}</div>
       </div>
       <div class="card">
         <h3 style="margin-bottom:10px">Lots fabriqués</h3>
@@ -381,6 +386,7 @@ function renderDetail(el, ctx, f) {
       </div>
     </div>`;
   el.querySelector('[data-edit]').addEventListener('click', () => openFormulationForm(f));
+  wireTasksList(el.querySelector('[data-tasks-list]'));
   el.querySelector('[data-link]').addEventListener('click', () => {
     const recipes = db.all('recipes').slice().sort((a, b) => (a.order || 0) - (b.order || 0));
     openModal({
@@ -496,7 +502,7 @@ function formTable(list) {
       { label: 'Nom', render: r => `<div class="strong">${esc(r.name)}</div><div class="muted">${esc(r.author || '')}</div>` },
       { label: 'Date', render: r => dateFmt(r.date) },
       { label: 'Total %', align: 'num', render: r => { const p = totalPct(r); return `<span class="${Math.abs(p - 100) < 0.01 ? 'pct-ok' : 'pct-bad'}">${num(p, 2)} %</span>`; } },
-      { label: 'Résultat', render: r => `<span class="muted">${esc((r.result || '').slice(0, 90))}${(r.result || '').length > 90 ? '…' : ''}</span>` },
+      { label: 'Tâches', render: r => { const t = tasksOf(r.id); return t.length ? `<span class="muted">${esc(taskSummary(t))}</span>` : '<span class="muted">—</span>'; } },
       { label: 'Prochaine fois', render: r => `<span class="muted">${esc((r.notes || '').slice(0, 90))}${(r.notes || '').length > 90 ? '…' : ''}</span>` },
       { label: 'Statut', render: r => badge(r.status, STATUS_KIND[r.status] || 'grey') },
     ], rows: list, rowAttrs: r => `class="clickable" data-open="${r.id}"`, empty: 'Aucune formulation réelle pour cette fiche. Clique sur « Créer une formulation » pour commencer.'
