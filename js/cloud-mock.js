@@ -1,7 +1,8 @@
 // Simulation de Supabase pour les tests automatisés (jamais chargée en production).
 // Données partagées entre onglets via localStorage ; temps réel simulé par l'événement « storage ».
 (function () {
-  const KEY = 'mock-supabase-records', USERS = 'mock-supabase-users';
+  const KEY = 'mock-supabase-records', USERS = 'mock-supabase-users', ALLOW = 'mock-supabase-acces';
+  const allowed = (email) => { const l = read(ALLOW); return !l.length || l.includes(String(email || '').toLowerCase()); };
   const read = (k) => { try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch (_) { return []; } };
   const write = (k, v) => localStorage.setItem(k, JSON.stringify(v));
   const SESSION = 'mock-supabase-session';
@@ -21,6 +22,7 @@
       async signUp({ email, password, options }) {
         const users = read(USERS); email = email.toLowerCase();
         if (users.some(x => x.email === email)) return { data: {}, error: { message: 'User already registered' } };
+        if (!allowed(email)) return { data: {}, error: { message: 'Database error saving new user' } };
         const u = { id: 'uid-' + Math.random().toString(36).slice(2, 10), email, password, meta: options?.data || {} }; users.push(u); write(USERS, users);
         const user = { id: u.id, email, user_metadata: u.meta }; const s = { user, access_token: 't' };
         if (persist) setSession(s);
@@ -41,9 +43,13 @@
         return q;
       },
     });
+    const acces = () => ({
+      upsert(rows) { const e = requireAuth(); if (e || !allowed(session.user.email)) return Promise.resolve({ error: e || { message: 'new row violates row-level security policy' } }); const l = read(ALLOW); for (const r of [].concat(rows)) if (!l.includes(r.email)) l.push(r.email); write(ALLOW, l); return Promise.resolve({ error: null }); },
+    });
     const client = {
       auth,
-      from() { return table(); },
+      from(t) { return t === 'acces_autorises' ? acces() : table(); },
+      async rpc(name) { if (name !== 'est_autorise') return { data: null, error: { code: 'PGRST202', message: `function ${name} not found` } }; return { data: !!session && allowed(session.user.email), error: null }; },
       channel() { let cb = null; const h = (e) => { if (e.key !== 'mock-rt' || !cb) return; const p = JSON.parse(e.newValue); for (const r of p.rows) cb({ eventType: r.type === 'delete' ? 'DELETE' : 'UPDATE', new: r.type === 'delete' ? null : { collection: r.collection, id: r.id, data: r.data }, old: { collection: r.collection, id: r.id } }); };
         return { on(_t, _f, fn) { cb = fn; return this; }, subscribe() { addEventListener('storage', h); this._h = h; return this; } }; },
       removeChannel(ch) { removeEventListener('storage', ch._h); },

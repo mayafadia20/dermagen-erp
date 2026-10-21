@@ -33,12 +33,29 @@ export const cloud = {
   // ---- Authentification ----
   async session() { const c = await getClient(); const { data } = await c.auth.getSession(); return data?.session || null; },
   async signIn(email, password) { const c = await getClient(); const { data, error } = await c.auth.signInWithPassword({ email, password }); if (error) fail(error, 'Connexion refusée'); return data.user; },
-  async signUp(email, password, meta = {}) { const c = await getClient(); const { data, error } = await c.auth.signUp({ email, password, options: { data: meta } }); if (error) fail(error, 'Création du compte impossible'); return data; },
   async signUpOther(email, password, meta = {}) { const c = await getSecondaryClient(); const { data, error } = await c.auth.signUp({ email, password, options: { data: meta } }); if (error) fail(error, 'Création du compte impossible'); return data; },
   async signOut() { const c = await getClient(); await c.auth.signOut(); },
   async updatePassword(password) { const c = await getClient(); const { error } = await c.auth.updateUser({ password }); if (error) fail(error, 'Changement de mot de passe impossible'); },
   async resetPassword(email) { const c = await getClient(); const { error } = await c.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }); if (error) fail(error, 'Envoi du courriel impossible'); },
   async onAuth(cb) { const c = await getClient(); return c.auth.onAuthStateChange((event, session) => cb(event, session)); },
+
+  // ---- Accès réservé (liste des courriels autorisés, voir supabase/schema.sql) ----
+  /** true/false selon la liste ; null si la base n'a pas encore la fonction (schéma pas à jour). */
+  async accessAllowed() {
+    const c = await getClient();
+    const { data, error } = await c.rpc('est_autorise');
+    if (error) {
+      if (/est_autorise|PGRST202|42883/.test(`${error.code || ''} ${error.message || ''}`)) { console.warn('Liste des accès absente de la base : exécuter supabase/schema.sql dans Supabase.'); return null; }
+      fail(error, 'Vérification de l’accès impossible');
+    }
+    return data === true;
+  },
+  /** Ajoute un courriel à la liste des accès (à faire avant de créer le compte de la personne). */
+  async allowEmail(email) {
+    const c = await getClient();
+    const { error } = await c.from('acces_autorises').upsert({ email: String(email || '').trim().toLowerCase() }, { onConflict: 'email', ignoreDuplicates: true });
+    if (error) fail(error, 'Ajout à la liste des accès impossible');
+  },
 
   // ---- Données ----
   async loadAll() {

@@ -29,8 +29,11 @@ Par défaut l'application fonctionne en mode local (données dans le navigateur)
 3. Dans *Authentication → URL Configuration*, mettre `https://erp.dermagen.ca` comme Site URL et l'ajouter aux Redirect URLs.
 4. Dans *Project Settings → API*, copier l'URL du projet et la clé `anon public` dans `js/config.js`.
 5. Pousser sur `main`. À la première connexion, les données déjà présentes dans le navigateur sont envoyées vers la base en ligne ; le premier compte créé devient administrateur.
+6. Dans *Authentication → Sign In / Providers → Email*, désactiver **Allow new users to sign up** (ceinture et bretelles : le schéma refuse déjà toute inscription hors liste).
 
-Les comptes sont gérés par Supabase Auth (courriel + mot de passe, réinitialisation par courriel). La clé `anon` est publique par conception ; la sécurité repose sur les règles RLS du schéma, qui réservent la table aux utilisateurs authentifiés.
+Les comptes sont gérés par Supabase Auth (courriel + mot de passe, réinitialisation par courriel). La clé `anon` est publique par conception ; la sécurité repose sur les règles RLS du schéma.
+
+**Accès réservé.** Il n'y a pas d'inscription publique : seules les adresses de la table `acces_autorises` peuvent créer un compte (déclencheur sur `auth.users`) et lire ou écrire les données (règles RLS). À l'exécution du schéma, les comptes déjà existants sont ajoutés à la liste ; vérifier avec `select * from public.acces_autorises;` et retirer les adresses indésirables. Ensuite, l'administrateur·rice ajoute une personne depuis *Mon profil → Nouvel utilisateur*, qui inscrit l'adresse dans la liste puis crée le compte. Un compte connecté dont l'adresse n'est pas dans la liste est refusé à l'entrée de l'ERP.
 
 ## Fonctionnement technique
 

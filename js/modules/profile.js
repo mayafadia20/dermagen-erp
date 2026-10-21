@@ -62,7 +62,7 @@ export default {
           ], rows: users
         })}
       </div>` : ''}
-      <p class="muted" style="font-size:12px">${isCloud() ? 'Les comptes et mots de passe sont gérés par Supabase Auth ; les données de l’ERP sont dans la base en ligne de l’entreprise et partagées par toute l’équipe.' : 'Les comptes et leurs empreintes de mot de passe (PBKDF2-SHA-256, 150 000 itérations) sont enregistrés dans ce navigateur avec le reste des données. Cette connexion protège l’accès à l’application sur un poste partagé ; elle ne chiffre pas les données elles-mêmes, qui restent lisibles par quiconque a accès au profil du navigateur. Les sauvegardes JSON contiennent les comptes.'}</p>`;
+      <p class="muted" style="font-size:12px">${isCloud() ? 'Les comptes et mots de passe sont gérés par Supabase Auth ; les données de l’ERP sont dans la base en ligne de l’entreprise et partagées par toute l’équipe. L’accès est réservé : seules les adresses de la liste des accès autorisés (ajoutées ici par « Nouvel utilisateur ») peuvent créer un compte et se connecter.' : 'Les comptes et leurs empreintes de mot de passe (PBKDF2-SHA-256, 150 000 itérations) sont enregistrés dans ce navigateur avec le reste des données. Cette connexion protège l’accès à l’application sur un poste partagé ; elle ne chiffre pas les données elles-mêmes, qui restent lisibles par quiconque a accès au profil du navigateur. Les sauvegardes JSON contiennent les comptes.'}</p>`;
 
     el.querySelector('[data-logout]').addEventListener('click', logout);
     const info = el.querySelector('[data-info]');

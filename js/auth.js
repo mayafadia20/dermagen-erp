@@ -46,6 +46,7 @@ export async function createUser({ name, email, password, role = 'formulatrice',
   if (findByEmail(email)) throw new Error('Un compte existe déjà avec ce courriel.');
   const base = { name: name.trim(), email: email.trim().toLowerCase(), role, color: color || pickColor() };
   if (cloud.enabled()) {
+    await cloud.allowEmail(base.email);   // sinon la base refuse l'inscription (accès réservé)
     const { user } = await cloud.signUpOther(base.email, password, { name: base.name });
     if (!user?.id) throw new Error('Supabase n’a pas renvoyé d’identifiant de compte.');
     return db.insert('users', { ...base, id: user.id, authProvider: 'supabase' });
@@ -156,13 +157,22 @@ async function profileFor(authUser) {
   current = db.update('users', u.id, { lastLoginAt: new Date().toISOString() }) || u;
   return current;
 }
+/** Accès réservé : refuse les comptes dont le courriel n'est pas dans la liste des accès autorisés de la base. */
+async function enterCloud(authUser) {
+  if (await cloud.accessAllowed() === false) {
+    try { await cloud.signOut(); } catch (_) {}
+    throw new Error(`Accès réservé : ${authUser.email} n’est pas dans la liste des personnes autorisées.`);
+  }
+  return profileFor(authUser);
+}
 
 function requireLoginCloud() {
   return new Promise(async resolve => {
     const recovery = /type=recovery/.test(location.hash);
     let session = null;
     try { session = await cloud.session(); } catch (e) { console.warn(e); }
-    if (session && !recovery) { try { return resolve(await profileFor(session.user)); } catch (e) { console.error(e); toast(e.message, 'err'); } }
+    let refused = '';
+    if (session && !recovery) { try { return resolve(await enterCloud(session.user)); } catch (e) { console.error(e); refused = e.message; } }
 
     const view = recovery ? 'recovery' : 'login';
     const el = mount(cloudScreen(view));
@@ -171,7 +181,7 @@ function requireLoginCloud() {
     const wire = () => {
       const form = el.querySelector('[data-login]'), err = el.querySelector('[data-error]'), ok = el.querySelector('[data-ok]');
       const fail = (m) => { err.textContent = m; err.hidden = false; };
-      el.querySelector('[data-to-signup]')?.addEventListener('click', e => { e.preventDefault(); rerender('signup'); });
+      if (refused) { fail(refused); refused = ''; }
       el.querySelector('[data-to-login]')?.addEventListener('click', e => { e.preventDefault(); rerender('login'); });
       el.querySelector('[data-to-reset]')?.addEventListener('click', e => { e.preventDefault(); rerender('reset'); });
       form.addEventListener('submit', async e => {
@@ -180,12 +190,7 @@ function requireLoginCloud() {
         try {
           if (mode === 'login') {
             const user = await cloud.signIn(f.email.value.trim(), f.password.value);
-            const me = await profileFor(user); unmount(el); resolve(me);
-          } else if (mode === 'signup') {
-            if (f.password.value !== f.confirm.value) throw new Error('Les deux mots de passe ne correspondent pas.');
-            const { user, session: s } = await cloud.signUp(f.email.value.trim(), f.password.value, { name: f.name.value.trim() });
-            if (s && user) { const me = await profileFor(user); unmount(el); resolve(me); }
-            else { ok.textContent = 'Compte créé. Confirme ton adresse via le courriel reçu, puis connecte-toi.'; ok.hidden = false; }
+            const me = await enterCloud(user); unmount(el); resolve(me);
           } else if (mode === 'reset') {
             await cloud.resetPassword(f.email.value.trim());
             ok.textContent = 'Courriel envoyé : suis le lien pour choisir un nouveau mot de passe.'; ok.hidden = false;
@@ -193,7 +198,7 @@ function requireLoginCloud() {
             if (f.password.value !== f.confirm.value) throw new Error('Les deux mots de passe ne correspondent pas.');
             await cloud.updatePassword(f.password.value);
             history.replaceState(null, '', location.pathname + '#/formulations');
-            const s2 = await cloud.session(); const me = await profileFor(s2.user); unmount(el); resolve(me);
+            const s2 = await cloud.session(); const me = await enterCloud(s2.user); unmount(el); resolve(me);
           }
         } catch (ex) { fail(ex.message || 'Erreur'); }
         finally { btn.disabled = false; }
@@ -215,18 +220,7 @@ function cloudScreen(mode) {
         <div class="login-error" data-error hidden></div><div class="login-ok" data-ok hidden></div>
         <button type="submit" class="btn primary login-submit">Se connecter</button>
       </form>
-      <p class="muted login-foot"><a href="#" data-to-reset>Mot de passe oublié ?</a> · <a href="#" data-to-signup>Créer un compte</a></p>`,
-    signup: `
-      <h1>Créer un compte</h1><p class="muted">Le premier compte créé devient administrateur ; les suivants sont formulateur·rice jusqu’à ce qu’un·e administrateur·rice change leur rôle.</p>
-      <form data-login novalidate>
-        <label>Votre nom<input name="name" autocomplete="name" required></label>
-        <label>Courriel<input name="email" type="email" autocomplete="username" required></label>
-        <label>Mot de passe<input name="password" type="password" autocomplete="new-password" minlength="6" required></label>
-        <label>Confirmer le mot de passe<input name="confirm" type="password" autocomplete="new-password" minlength="6" required></label>
-        <div class="login-error" data-error hidden></div><div class="login-ok" data-ok hidden></div>
-        <button type="submit" class="btn primary login-submit">Créer mon compte</button>
-      </form>
-      <p class="muted login-foot"><a href="#" data-to-login>J’ai déjà un compte</a></p>`,
+      <p class="muted login-foot"><a href="#" data-to-reset>Mot de passe oublié ?</a> · Accès sur invitation seulement.</p>`,
     reset: `
       <h1>Mot de passe oublié</h1><p class="muted">Nous t’envoyons un lien pour en choisir un nouveau.</p>
       <form data-login novalidate>
