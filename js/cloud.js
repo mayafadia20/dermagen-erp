@@ -24,7 +24,9 @@ export async function getSecondaryClient() {
   return createClient(SUPABASE_URL || 'mock', SUPABASE_ANON_KEY || 'mock', { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
 }
 
-const fail = (error, what) => { const e = new Error(`${what} : ${error.message || error}`); e.cause = error; throw e; };
+/** Message lisible ; « Failed to fetch » = le projet Supabase ne répond pas (souvent : projet gratuit mis en pause après 7 jours sans activité). */
+const explain = (m) => /failed to fetch|networkerror|load failed/i.test(String(m || '')) ? 'base en ligne injoignable. Le projet Supabase est probablement en pause (plan gratuit) : réactivez-le dans le tableau de bord Supabase, puis réessayez dans quelques minutes.' : String(m || '');
+const fail = (error, what) => { const e = new Error(`${what} : ${explain(error.message || error)}`); e.cause = error; throw e; };
 
 export const cloud = {
   enabled: cloudEnabled,
