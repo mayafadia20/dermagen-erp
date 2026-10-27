@@ -12,17 +12,20 @@ import passwords from './modules/passwords.js';
 import accelerators from './modules/accelerators.js';
 import chat from './modules/chat.js';
 import profile from './modules/profile.js';
+import planner from './modules/planner.js';
 import { requireLogin, currentUser, firstName, initials, logout, installReadOnlyGuard, isAdmin } from './auth.js';
 import { assistantBusy } from './chimiste.js';
 import { runMigrations } from './migrations.js';
 
-const MODULES = { ingredients, formulations, chat, suppliers, purchases, invoices, payments, passwords, accelerators, profile, settings };
+const MODULES = { ingredients, formulations, chat, planner, suppliers, purchases, invoices, payments, passwords, accelerators, profile, settings };
 
 const NAV = [
   { group: 'Laboratoire' },
   { id: 'ingredients', label: 'Inventaire des ingrédients', icon: '⚗' },
   { id: 'formulations', label: 'Formulations', icon: '✦' },
   { id: 'chat', label: 'Assistante chimiste', icon: '⚗' },
+  { group: 'Opérations' },
+  { id: 'planner', label: 'Planner', icon: '▣' },
   { group: 'Approvisionnement' },
   { id: 'suppliers', label: 'Fournisseurs', icon: '⌂' },
   { id: 'purchases', label: 'Bons de commande', icon: '▤' },
