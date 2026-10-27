@@ -570,7 +570,7 @@ function renderRecipes(el, ctx) {
       <div class="card-head"><h3>Tâches à faire</h3><span class="muted">${mine.length ? `${mine.length} pour moi · ` : ''}${tasks.length} en tout</span></div>
       <div data-tasks-list>${tasksHtml(tasks.slice(0, 8), { showFormulation: true })}</div>
     </div>` : ''}
-    ${['T', 'N'].map(ph => { const list = recipes.filter(r => r.phase === ph); return list.length ? `<div class="week-head"><h3>${esc(PHASE_LABEL[ph])}</h3></div><div class="recipe-grid">${list.map(card).join('')}</div>` : ''; }).join('')}
+    ${recipes.length ? `<div class="recipe-grid" style="margin-top:18px">${recipes.map(card).join('')}</div>` : ''}
     ${!recipes.length ? '<div class="empty">Aucune fiche théorique. Clique sur « Créer une fiche théorique » pour commencer.</div>' : ''}
     ${archived.length ? `<details class="archived-box" style="margin-top:22px"><summary class="muted">Fiches archivées (${archived.length})</summary>
       <div class="recipe-grid" style="margin-top:12px">${archived.map(r => `<div class="recipe-card phase-${r.phase} archived">
