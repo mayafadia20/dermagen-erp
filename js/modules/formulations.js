@@ -4,7 +4,9 @@ import { esc, money, num, dateFmt, today, isoWeek, toast, badge, openModal, conf
 import { recordMovement } from './ingredients.js';
 import { importEssais, ESSAIS_TAG } from '../essais.js';
 import { currentUser } from '../auth.js';
-import { ensureRecipes, recipeLines, PHASE_LABEL } from '../recettes.js';
+import { ensureRecipes, recipeLines, PHASE_LABEL, findIngredient, nextIngredientCode } from '../recettes.js';
+import { stockBadge, isWater, isWaterName } from '../stock.js';
+import { makeRoleFiller } from '../fonctions.js';
 import { currentUser as whoami } from '../auth.js';
 import { tasksEditor, wireTasksEditor, readTasks, syncTasks, tasksOf, tasksHtml, wireTasksList, taskSummary, openTasks } from '../taches.js';
 
@@ -56,7 +58,7 @@ function stepsHtml(steps, { editable = false } = {}) {
 
 // ---------- Éditeur ----------
 function lineRow(l = {}, ingredients, sheetIds = new Set()) {
-  const opt = (i) => `<option value="${i.id}" data-cost="${costPerGram(i)}" ${i.id === l.ingredientId ? 'selected' : ''}>${esc(i.name)}${i.inci ? ' (' + esc(i.inci) + ')' : ''}</option>`;
+  const opt = (i) => `<option value="${i.id}" data-cost="${costPerGram(i)}" data-stock="${Number(i.stock) || 0}" data-unit="${esc(i.unit || 'g')}" data-role="${esc(i.role || '')}" data-inci="${esc(i.inci || '')}" data-name="${esc(i.name)}" ${isWater(i) ? 'data-water="1"' : ''} ${i.id === l.ingredientId ? 'selected' : ''}>${esc(i.name)}${i.inci ? ' (' + esc(i.inci) + ')' : ''}</option>`;
   const inSheet = ingredients.filter(i => sheetIds.has(i.id)), others = ingredients.filter(i => !sheetIds.has(i.id));
   const opts = ['<option value="">— Choisir —</option>',
     ...(inSheet.length ? [`<optgroup label="Ingrédients de la fiche théorique">${inSheet.map(opt).join('')}</optgroup>`] : []),
@@ -68,7 +70,8 @@ function lineRow(l = {}, ingredients, sheetIds = new Set()) {
     <td style="width:110px"><input name="pct" type="number" step="0.001" min="0" max="100" value="${l.pct ?? ''}" placeholder="%"></td>
     <td style="width:130px"><input name="qty" type="number" step="0.001" min="0" placeholder="g" title="Quantité en grammes pour le lot de référence"></td>
     <td style="width:110px" class="num" data-cost>—</td>
-    <td><input name="role" value="${esc(l.role || '')}" placeholder="Fonction"></td>
+    <td><input name="role" value="${esc(l.role || '')}" placeholder="Fonction" title="Remplie automatiquement d’après l’inventaire ou par l’assistante chimiste ; modifiable"></td>
+    <td style="width:100px" data-stock></td>
     <td style="width:40px"><button type="button" class="icon-btn del" data-del-line title="Retirer">✕</button></td>
   </tr>`;
 }
@@ -105,9 +108,10 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
       ${field({ label: 'Objectif / hypothèse de recherche', name: 'objective', type: 'textarea', rows: 2, value: f.objective, cols: 4, placeholder: 'ex. Améliorer le lissage sans formaldéhyde sur cheveux poreux' })}
       <div class="form-section">Composition (total doit faire 100 %)</div>
       <div class="lines">
-        <table><thead><tr><th></th><th>Phase</th><th>Ingrédient</th><th>%</th><th>Quantité (g)</th><th class="num">Coût</th><th>Fonction</th><th></th></tr></thead>
+        <table><thead><tr><th></th><th>Phase</th><th>Ingrédient</th><th>%</th><th>Quantité (g)</th><th class="num">Coût</th><th>Fonction</th><th>Stock</th><th></th></tr></thead>
         <tbody data-lines>${(f.lines || []).map(l => lineRow(l, ingredients, sheetIds)).join('')}</tbody></table>
         <div class="lines-foot"><button type="button" class="btn sm" data-add-line>+ Ajouter une ligne</button><span>Total : <b data-total-pct>0</b> % · Coût du lot : <b data-total-cost>0</b> · <span data-per100></span></span></div>
+        <div class="muted" style="font-size:12px;margin-top:6px">L’eau complète automatiquement la formule à 100 % (qsp). Les nouvelles lignes sont en phase A ; change la phase si besoin. La fonction se remplit d’après l’inventaire ou par l’assistante chimiste.</div>
       </div>
       <div class="form-section">Mode opératoire, observations et résultats</div>
       ${stepsEditor(stepsOf(f))}
@@ -140,17 +144,33 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
     const batch = Number(form.querySelector('[name=batchSize]').value) || 100;
     const src = e && e.target;
     let pct = 0, cost = 0;
-    tbody.querySelectorAll('tr').forEach(tr => {
+    const rows = [...tbody.querySelectorAll('tr')];
+    /* L'eau (première ligne « Aqua ») complète la formule à 100 % : son % est calculé, pas saisi */
+    const waterRow = rows.find(tr => tr.querySelector('[name=ingredientId]').selectedOptions[0]?.dataset.water);
+    rows.forEach(tr => {
       const pctEl = tr.querySelector('[name=pct]'), qtyEl = tr.querySelector('[name=qty]');
+      const qsp = tr === waterRow;
+      tr.classList.toggle('qsp', qsp); pctEl.readOnly = qsp; qtyEl.readOnly = qsp; pctEl.title = qsp ? 'Calculé : complément à 100 % (qsp)' : '';
+      if (qsp) return;
       /* La quantité en grammes et le pourcentage se déduisent l'un de l'autre selon le champ modifié */
       if (src === qtyEl) { const g = Number(qtyEl.value) || 0; pctEl.value = batch ? String(Math.round(g / batch * 100 * 1000) / 1000) : ''; }
       const p = Number(pctEl.value) || 0;
       const grams = batch * p / 100;
       if (src !== qtyEl && document.activeElement !== qtyEl) qtyEl.value = pctEl.value === '' ? '' : String(Math.round(grams * 1000) / 1000);
+      pct += p;
+    });
+    if (waterRow) {
+      const w = Math.max(0, Math.round((100 - pct) * 1000) / 1000);
+      waterRow.querySelector('[name=pct]').value = String(w); waterRow.querySelector('[name=qty]').value = String(Math.round(batch * w / 100 * 1000) / 1000);
+      pct += w;
+    }
+    rows.forEach(tr => {
+      const p = Number(tr.querySelector('[name=pct]').value) || 0, grams = batch * p / 100;
       const opt = tr.querySelector('[name=ingredientId]').selectedOptions[0];
       const cpg = Number(opt?.dataset.cost) || 0;
       tr.querySelector('td[data-cost]').textContent = money(grams * cpg);
-      pct += p; cost += grams * cpg;
+      tr.querySelector('td[data-stock]').innerHTML = opt?.value ? stockBadge(db.get('ingredients', opt.value), grams) : '<span class="muted">—</span>';
+      cost += grams * cpg;
     });
     const tp = form.querySelector('[data-total-pct]');
     tp.textContent = num(pct, 3); tp.className = Math.abs(pct - 100) < 0.01 ? 'pct-ok' : 'pct-bad';
@@ -160,10 +180,18 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
   form.addEventListener('input', recalc);
   form.addEventListener('change', recalc);
   form.querySelector('[data-add-line]').addEventListener('click', () => {
-    const last = tbody.querySelector('tr:last-child [name=phase]')?.value || 'A';
-    tbody.insertAdjacentHTML('beforeend', lineRow({ phase: last }, ingredients, sheetIds)); recalc();
+    tbody.insertAdjacentHTML('beforeend', lineRow({ phase: 'A' }, ingredients, sheetIds)); recalc();
     tbody.lastElementChild.querySelector('[name=ingredientId]').focus();
   });
+  /* Fonction : d'après l'inventaire tout de suite, sinon demandée à l'assistante chimiste (sans écraser une saisie) */
+  const roles = makeRoleFiller(() => [...tbody.querySelectorAll('tr')].map(tr => { const o = tr.querySelector('[name=ingredientId]').selectedOptions[0]; return { input: tr.querySelector('[name=role]'), id: o?.value || '', name: o?.dataset.name || '', inci: o?.dataset.inci || '' }; }));
+  tbody.addEventListener('change', e => {
+    if (e.target.name !== 'ingredientId') return;
+    const tr = e.target.closest('tr'), o = e.target.selectedOptions[0], role = tr.querySelector('[name=role]');
+    if (!role.value.trim() && o?.dataset.role) role.value = o.dataset.role;
+    roles.schedule();
+  });
+  roles.fillKnown();
   form.addEventListener('click', e => {
     const b = e.target.closest('[data-del-line]'); if (b) { b.closest('tr').remove(); recalc(); return; }
     const mv = e.target.closest('[data-move-line]');
@@ -213,7 +241,8 @@ function readLines(form) {
     phase: tr.querySelector('[name=phase]').value,
     ingredientId: tr.querySelector('[name=ingredientId]').value,
     pct: Number(tr.querySelector('[name=pct]').value) || 0,
-    role: tr.querySelector('[name=role]').value.trim()
+    role: tr.querySelector('[name=role]').value.trim(),
+    qsp: tr.classList.contains('qsp')
   })).filter(l => l.ingredientId);
 }
 
@@ -351,7 +380,7 @@ function renderDetail(el, ctx, f) {
           { label: '%', align: 'num', render: l => num(l.pct, 3) + ' %' },
           { label: `Qté pour ${num(batch, 0)} g`, align: 'num', render: l => num(batch * l.pct / 100, 3) + ' g' },
           { label: 'Coût', align: 'num', render: l => { const i = db.get('ingredients', l.ingredientId); return i ? money(batch * l.pct / 100 * costPerGram(i)) : '—'; } },
-          { label: 'Stock dispo', align: 'num', render: l => { const i = db.get('ingredients', l.ingredientId); if (!i) return '—'; const need = gramsToUnit(batch * l.pct / 100, i.unit); const ok = (Number(i.stock) || 0) >= need; return `<span class="${ok ? '' : 'pct-bad'}">${num(i.stock, 3)} ${esc(i.unit)}</span>`; } },
+          { label: 'Stock', render: l => { const i = db.get('ingredients', l.ingredientId); return stockBadge(i, batch * l.pct / 100) + (i ? `<div class="muted" style="font-size:11.5px">${num(i.stock, 3)} ${esc(i.unit)}</div>` : ''); } },
         ], rows: lines
       })}
     </div>
@@ -513,7 +542,8 @@ function recipeLinkHtml(f) {
 
 function renderRecipes(el, ctx) {
   ensureRecipes();
-  const recipes = db.all('recipes').slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+  const allRecipes = db.all('recipes').slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+  const recipes = allRecipes.filter(r => !r.archived), archived = allRecipes.filter(r => r.archived);
   const forms = db.all('formulations');
   const byRecipe = (id) => forms.filter(f => f.recipeId === id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const orphans = forms.filter(f => !f.recipeId).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -522,8 +552,9 @@ function renderRecipes(el, ctx) {
   const mine = tasks.filter(t => t.assigneeId === me);
   const card = (r) => {
     const list = byRecipe(r.id); const last = list[0];
-    return `<a href="#/formulations/fiche-${r.id}" class="recipe-card phase-${r.phase}">
-      <div class="recipe-tags"><span class="badge ${r.phase === 'T' ? 'purple' : 'green'}">${esc(r.bottle)}</span></div>
+    return `<a href="#/formulations/fiche-${r.id}" class="recipe-card phase-${r.phase} ${r.archived ? 'archived' : ''}">
+      <button type="button" class="recipe-x" data-del-recipe="${r.id}" title="Supprimer cette fiche théorique" aria-label="Supprimer">✕</button>
+      <div class="recipe-tags">${r.bottle ? `<span class="badge ${r.phase === 'T' ? 'purple' : 'green'}">${esc(r.bottle)}</span>` : ''}${r.archived ? '<span class="badge grey">Archivée</span>' : ''}</div>
       <div class="recipe-name">${esc(r.name)}</div>
       <div class="recipe-foot"><span>${list.length} formulation${list.length > 1 ? 's' : ''} réelle${list.length > 1 ? 's' : ''}</span>${last ? badge(last.status, STATUS_KIND[last.status] || 'grey') : '<span class="muted">aucun essai</span>'}</div>
     </a>`;
@@ -532,26 +563,57 @@ function renderRecipes(el, ctx) {
     <div class="page-head">
       <div><h2>Fiches théoriques de la gamme</h2></div>
       <div class="actions">
-        ${forms.some(f => f.importTag === ESSAIS_TAG) ? '' : '<button class="btn" data-import-essais title="Document « Calcul et quantités » : Booster Activation, Phase Transformante T1 à T4, Booster lipidique">Importer les essais du document</button>'}
-        <button class="btn primary" data-new>+ Formulation libre</button>
+        <button class="btn primary" data-new-recipe>+ Créer une fiche théorique</button>
       </div>
     </div>
     ${tasks.length ? `<div class="card" style="margin-top:18px">
       <div class="card-head"><h3>Tâches à faire</h3><span class="muted">${mine.length ? `${mine.length} pour moi · ` : ''}${tasks.length} en tout</span></div>
       <div data-tasks-list>${tasksHtml(tasks.slice(0, 8), { showFormulation: true })}</div>
     </div>` : ''}
-    ${['T', 'N'].map(ph => `<div class="week-head"><h3>${esc(PHASE_LABEL[ph])}</h3></div><div class="recipe-grid">${recipes.filter(r => r.phase === ph).map(card).join('')}</div>`).join('')}
+    ${['T', 'N'].map(ph => { const list = recipes.filter(r => r.phase === ph); return list.length ? `<div class="week-head"><h3>${esc(PHASE_LABEL[ph])}</h3></div><div class="recipe-grid">${list.map(card).join('')}</div>` : ''; }).join('')}
+    ${!recipes.length ? '<div class="empty">Aucune fiche théorique. Clique sur « Créer une fiche théorique » pour commencer.</div>' : ''}
+    ${archived.length ? `<details class="archived-box" style="margin-top:22px"><summary class="muted">Fiches archivées (${archived.length})</summary>
+      <div class="recipe-grid" style="margin-top:12px">${archived.map(r => `<div class="recipe-card phase-${r.phase} archived">
+        <div class="recipe-tags">${r.bottle ? `<span class="badge grey">${esc(r.bottle)}</span>` : ''}<span class="badge grey">Archivée</span></div>
+        <div class="recipe-name"><a href="#/formulations/fiche-${r.id}">${esc(r.name)}</a></div>
+        <div class="recipe-foot"><span>${byRecipe(r.id).length} formulation(s) réelle(s)</span><button type="button" class="btn sm" data-restore-recipe="${r.id}">Restaurer</button></div>
+      </div>`).join('')}</div></details>` : ''}
     ${orphans.length ? `<div class="card" style="margin-top:22px">
       <div class="card-head"><h3>Formulations sans fiche théorique</h3><span class="muted">${orphans.length} essai(s) · rattache-les à une fiche via « Modifier »</span></div>
       ${formTable(orphans)}
     </div>` : ''}`;
-  el.querySelector('[data-import-essais]')?.addEventListener('click', () => importEssais(ctx.navigate));
   wireTasksList(el.querySelector('[data-tasks-list]'));
-  el.querySelector('[data-new]').addEventListener('click', () => {
-    if (!db.all('ingredients').length) return toast('Créez d’abord des ingrédients dans l’inventaire.', 'warn');
-    openFormulationForm(null, id => ctx.navigate('formulations', id));
+  el.querySelector('[data-new-recipe]').addEventListener('click', () => openRecipeForm(null, id => ctx.navigate('formulations', 'fiche-' + id)));
+  el.addEventListener('click', async e => {
+    const x = e.target.closest('[data-del-recipe]');
+    if (x) { e.preventDefault(); e.stopPropagation(); await deleteRecipe(x.dataset.delRecipe); return; }
+    const rs = e.target.closest('[data-restore-recipe]');
+    if (rs) { db.update('recipes', rs.dataset.restoreRecipe, { archived: false }); toast('Fiche restaurée'); return; }
+    const tr = e.target.closest('tr[data-open]'); if (tr) ctx.navigate('formulations', tr.dataset.open);
   });
-  el.addEventListener('click', e => { const tr = e.target.closest('tr[data-open]'); if (tr) ctx.navigate('formulations', tr.dataset.open); });
+}
+
+/** Suppression d'une fiche théorique depuis son étiquette : confirmation ; refus + archivage si des formulations réelles y sont rattachées. */
+async function deleteRecipe(id) {
+  const r = db.get('recipes', id); if (!r) return;
+  const real = db.all('formulations').filter(f => f.recipeId === r.id);
+  if (real.length) {
+    await new Promise(resolve => {
+      const m = openModal({
+        title: 'Suppression impossible',
+        body: `<p class="confirm-text">La fiche « <b>${esc(r.name)}</b> » ne peut pas être supprimée : <b>${real.length} formulation${real.length > 1 ? 's' : ''} réelle${real.length > 1 ? 's' : ''}</b> y ${real.length > 1 ? 'sont rattachées' : 'est rattachée'} (${real.map(f => esc(f.code)).join(', ')}).</p>
+          <p class="muted">Tu peux l’archiver : elle disparaît du tableau de bord mais reste consultable avec ses formulations, et tu pourras la restaurer.</p>`,
+        footer: `<button type="button" class="btn ghost" data-close>Fermer</button><button type="button" class="btn primary" data-archive>${r.archived ? 'Déjà archivée' : 'Archiver la fiche'}</button>`,
+        onClose: resolve,
+      });
+      m.overlay.querySelector('[data-archive]').addEventListener('click', () => { if (!r.archived) { db.update('recipes', r.id, { archived: true }); toast('Fiche archivée'); } m.close(); });
+    });
+    return;
+  }
+  if (!await confirmDialog(`Supprimer réellement la fiche théorique « ${r.name} » ? Cette action est définitive.`, { title: 'Supprimer la fiche', label: 'Oui, supprimer' })) return;
+  if (r.key) db.saveSettings({ recipesRemoved: [...new Set([...(db.settings().recipesRemoved || []), r.key])] });   // fiche du cahier : ne pas la recréer
+  db.remove('recipes', r.id);
+  toast('Fiche théorique supprimée');
 }
 
 function formTable(list) {
@@ -579,17 +641,19 @@ function renderRecipe(el, ctx, r) {
       <div class="page-head">
         <div><div class="recipe-tags" style="margin-bottom:6px"><span class="badge ${r.phase === 'T' ? 'purple' : 'green'}">${esc(PHASE_LABEL[r.phase] || r.phase)}</span></div>
           <h2>${esc(r.name)}</h2></div>
-        <div class="actions"><button class="btn primary" data-create>+ Créer une formulation à partir de cette fiche</button></div>
+        <div class="actions">${r.archived ? '<span class="badge grey">Archivée</span>' : ''}<button class="btn" data-edit-recipe>Modifier la fiche</button><button class="btn primary" data-create>+ Créer une formulation à partir de cette fiche</button></div>
       </div>
+      ${r.description ? `<div class="info">${esc(r.description)}</div>` : ''}
       <h3 style="margin-bottom:10px">Formule théorique (pour 100 g)</h3>
       ${table({
         columns: [
           { label: 'Phase', render: l => badge(l.phase, 'purple') },
-          { label: 'Ingrédient', render: l => { const i = db.get('ingredients', l.ingredientId); return i ? `<a href="#/ingredients/${i.id}">${esc(i.name)}</a>` : '—'; } },
-          { label: 'INCI', render: l => `<span class="muted">${esc(db.get('ingredients', l.ingredientId)?.inci || '')}</span>` },
+          { label: 'Ingrédient', render: l => { const i = db.get('ingredients', l.ingredientId); return i ? `<a href="#/ingredients/${i.id}">${esc(i.name)}</a>` : `${esc(l.name || '—')} <span class="muted" title="Cet ingrédient n’est pas dans l’inventaire">(hors inventaire)</span>`; } },
+          { label: 'INCI', render: l => `<span class="muted">${esc(db.get('ingredients', l.ingredientId)?.inci || l.inci || '')}</span>` },
           { label: 'Rôle', key: 'role' },
-          { label: '%', align: 'num', render: l => num(l.pct, 2) + ' %' },
+          { label: '%', align: 'num', render: l => num(l.pct, 2) + ' %' + (l.qsp ? ' <span class="muted" title="Complément à 100 %">qsp</span>' : '') },
           { label: 'Quantité pour 100 g', align: 'num', render: l => num(l.pct, 2) + ' g' },
+          { label: 'Stock', render: l => stockBadge(db.get('ingredients', l.ingredientId), l.pct) },
         ], rows: lines
       })}
     </div>
@@ -612,6 +676,7 @@ function renderRecipe(el, ctx, r) {
       <div class="card-head"><h3>Formulations réelles</h3><span class="muted">Chaque essai garde ses observations, ses résultats et les commentaires pour la prochaine fois.</span></div>
       <div data-real-list>${formTable(list)}</div>
     </div>`;
+  el.querySelector('[data-edit-recipe]').addEventListener('click', () => openRecipeForm(r, () => setTimeout(() => window.dispatchEvent(new Event('hashchange')), 0)));
   const target = recipeTarget(r);
   loadRecommendation(target, el);
   el.querySelector('[data-reco-refresh]').addEventListener('click', () => loadRecommendation(target, el, { force: true }));
@@ -644,6 +709,117 @@ function renderRecipe(el, ctx, r) {
   };
   el.querySelector('[data-create]').addEventListener('click', create);
   el.addEventListener('click', e => { const tr = e.target.closest('tr[data-open]'); if (tr) ctx.navigate('formulations', tr.dataset.open); });
+}
+
+// ---------- Fiche théorique : création et modification libres (ingrédients pas forcément dans l'inventaire) ----------
+function recipeLineRow(l = {}) {
+  return `<tr data-repeat-row class="${l.qsp ? 'qsp' : ''}">
+    <td style="width:70px"><select name="phase">${PHASES.map(p => `<option ${p === (l.phase || 'A') ? 'selected' : ''}>${p}</option>`).join('')}</select></td>
+    <td><input name="name" list="recipe-ing-names" value="${esc(l.name || '')}" placeholder="Nom de l’ingrédient" autocomplete="off"></td>
+    <td><input name="inci" value="${esc(l.inci || '')}" placeholder="INCI"></td>
+    <td style="width:110px"><input name="pct" type="number" step="0.001" min="0" max="100" value="${l.pct ?? ''}" placeholder="%"></td>
+    <td><input name="role" value="${esc(l.role || '')}" placeholder="Fonction" title="Remplie automatiquement d’après l’inventaire ou par l’assistante chimiste ; modifiable"></td>
+    <td style="width:100px" data-stock></td>
+    <td style="width:40px"><button type="button" class="icon-btn del" data-del-line title="Retirer">✕</button></td>
+  </tr>`;
+}
+const readRecipeLines = (form) => [...form.querySelectorAll('[data-lines] [data-repeat-row]')].map(tr => {
+  const name = tr.querySelector('[name=name]').value.trim(), inci = tr.querySelector('[name=inci]').value.trim();
+  const ing = findIngredient(name, inci);
+  return { phase: tr.querySelector('[name=phase]').value, name: ing?.name || name, inci: ing?.inci || inci, ingredientId: ing?.id || '', pct: Number(tr.querySelector('[name=pct]').value) || 0, role: tr.querySelector('[name=role]').value.trim(), qsp: tr.classList.contains('qsp') };
+}).filter(l => l.name);
+
+export function openRecipeForm(existing, onDone) {
+  const inv = db.all('ingredients').filter(i => i.category !== 'Matériel de laboratoire').slice().sort((a, b) => a.name.localeCompare(b.name));
+  const lines = existing ? recipeLines(existing).map(l => ({ ...l })) : [{ phase: 'A', name: 'Eau purifiée', inci: 'Aqua', role: 'Véhicule (qsp 100)', qsp: true }, { phase: 'A' }, { phase: 'A' }];
+  const r = existing || { phase: 'T', bottle: '', name: '', description: '' };
+  const m = openModal({
+    title: existing ? 'Modifier la fiche théorique' : 'Nouvelle fiche théorique', wide: true,
+    body: `<div class="form-grid">
+      ${field({ label: 'Nom de la fiche', name: 'name', value: r.name, required: true, cols: 2, placeholder: 'ex. Masque réparateur kératine' })}
+      ${field({ label: 'Phase de la gamme', name: 'phase', type: 'select', options: [['T', PHASE_LABEL.T], ['N', PHASE_LABEL.N]], value: r.phase || 'T', cols: 1 })}
+      ${field({ label: 'Étiquette', name: 'bottle', value: r.bottle, cols: 1, placeholder: 'ex. Flacon 8' })}
+      ${field({ label: 'Description / objectif', name: 'description', type: 'textarea', rows: 2, value: r.description, cols: 4 })}
+      <div class="form-section">Formule théorique (pour 100 g)</div>
+      <div class="lines">
+        <datalist id="recipe-ing-names">${inv.map(i => `<option value="${esc(i.name)}">${esc(i.inci || '')}</option>`).join('')}</datalist>
+        <table><thead><tr><th>Phase</th><th>Ingrédient</th><th>INCI</th><th>%</th><th>Fonction</th><th>Stock</th><th></th></tr></thead>
+        <tbody data-lines>${lines.map(l => recipeLineRow(l)).join('')}</tbody></table>
+        <div class="lines-foot"><button type="button" class="btn sm" data-add-line>+ Ajouter un ingrédient</button><span>Total : <b data-total-pct>0</b> %</span></div>
+        <div class="muted" style="font-size:12px;margin-top:6px">Les ingrédients peuvent être nouveaux (pas encore dans l’inventaire) : à l’enregistrement, l’ERP proposera de les y ajouter. L’eau complète la formule à 100 % (qsp). Les nouvelles lignes sont en phase A. La fonction se remplit d’après l’inventaire ou par l’assistante chimiste.</div>
+      </div>
+      <div class="form-section">Mode opératoire</div>
+      ${stepsEditor(existing ? (existing.steps || []) : [])}
+    </div>`,
+    submitLabel: existing ? 'Enregistrer' : 'Créer la fiche',
+    onSubmit(d, { form }) {
+      const rows = readRecipeLines(form);
+      if (!rows.filter(l => !l.qsp).length) { toast('Ajoute au moins un ingrédient.', 'warn'); return false; }
+      const data = { name: d.name, phase: d.phase, bottle: d.bottle, description: d.description, lines: rows, steps: readSteps(form), edited: true };
+      let rec;
+      if (existing) { rec = db.update('recipes', existing.id, data); toast('Fiche mise à jour'); }
+      else { rec = db.insert('recipes', { ...data, source: 'utilisateur', order: Math.max(0, ...db.all('recipes').map(x => Number(x.order) || 0)) + 1 }); toast('Fiche théorique créée'); }
+      const missing = rows.filter(l => !l.ingredientId && l.name);
+      onDone && onDone(rec.id);
+      if (missing.length) setTimeout(() => offerInventory(rec.id, missing), 120);
+    }
+  });
+  const form = m.form, tbody = form.querySelector('[data-lines]');
+  wireStepsEditor(form);
+  const rowInfo = (tr) => { const name = tr.querySelector('[name=name]').value.trim(), inci = tr.querySelector('[name=inci]').value.trim(); return { tr, name, inci, ing: findIngredient(name, inci) }; };
+  const recalc = () => {
+    const rows = [...tbody.querySelectorAll('tr')];
+    const waterRow = rows.find(tr => { const i = rowInfo(tr); return isWaterName(i.name, i.inci); });
+    let pct = 0;
+    rows.forEach(tr => {
+      const qsp = tr === waterRow, pctEl = tr.querySelector('[name=pct]');
+      tr.classList.toggle('qsp', qsp); pctEl.readOnly = qsp; pctEl.title = qsp ? 'Calculé : complément à 100 % (qsp)' : '';
+      if (!qsp) pct += Number(pctEl.value) || 0;
+    });
+    if (waterRow) { const w = Math.max(0, Math.round((100 - pct) * 1000) / 1000); waterRow.querySelector('[name=pct]').value = String(w); pct += w; }
+    rows.forEach(tr => { const i = rowInfo(tr); const p = Number(tr.querySelector('[name=pct]').value) || 0; tr.querySelector('td[data-stock]').innerHTML = i.name ? stockBadge(i.ing, p) : '<span class="muted">—</span>'; });
+    const tp = form.querySelector('[data-total-pct]'); tp.textContent = num(pct, 3); tp.className = Math.abs(pct - 100) < 0.01 ? 'pct-ok' : 'pct-bad';
+  };
+  form.addEventListener('input', recalc); form.addEventListener('change', recalc);
+  const roles = makeRoleFiller(() => [...tbody.querySelectorAll('tr')].map(tr => { const i = rowInfo(tr); return { input: tr.querySelector('[name=role]'), id: i.ing?.id || '', name: i.name, inci: i.inci }; }));
+  tbody.addEventListener('change', e => {
+    if (e.target.name !== 'name' && e.target.name !== 'inci') return;
+    const i = rowInfo(e.target.closest('tr'));
+    if (i.ing) {
+      const inciEl = i.tr.querySelector('[name=inci]'); if (!inciEl.value.trim()) inciEl.value = i.ing.inci || '';
+      const role = i.tr.querySelector('[name=role]'); if (!role.value.trim() && i.ing.role) role.value = i.ing.role;
+    }
+    roles.schedule();
+  });
+  form.querySelector('[data-add-line]').addEventListener('click', () => { tbody.insertAdjacentHTML('beforeend', recipeLineRow({ phase: 'A' })); recalc(); tbody.lastElementChild.querySelector('[name=name]').focus(); });
+  form.addEventListener('click', e => { const b = e.target.closest('[data-del-line]'); if (b) { b.closest('tr').remove(); recalc(); } });
+  recalc(); roles.fillKnown();
+}
+
+/** Après l'enregistrement d'une fiche : proposer d'ajouter à l'inventaire les ingrédients qui n'y sont pas (oui / non). */
+function offerInventory(recipeId, missing) {
+  const s = db.settings();
+  const m = openModal({
+    title: 'Ajouter ces ingrédients à l’inventaire ?',
+    body: `<p class="confirm-text">${missing.length} ingrédient${missing.length > 1 ? 's' : ''} de cette fiche ${missing.length > 1 ? 'ne sont pas encore' : 'n’est pas encore'} dans l’inventaire :</p>
+      <ul class="plain-list">${missing.map(l => `<li><b>${esc(l.name)}</b>${l.inci ? ` <span class="muted">(${esc(l.inci)})</span>` : ''}</li>`).join('')}</ul>
+      <p class="muted">Oui : ils sont créés à stock 0 (à approvisionner) et rattachés à la fiche, ce qui permet de suivre leur disponibilité. Non : la fiche garde simplement les noms.</p>`,
+    footer: `<button type="button" class="btn ghost" data-close>Non</button><button type="button" class="btn primary" data-yes>Oui, ajouter à l’inventaire</button>`,
+    onClose: () => setTimeout(() => window.dispatchEvent(new Event('hashchange')), 0),
+  });
+  m.overlay.querySelector('[data-yes]').addEventListener('click', () => {
+    const r = db.get('recipes', recipeId); if (!r) return m.close();
+    let n = 0;
+    const lines = (r.lines || []).map(l => {
+      if (l.ingredientId || !l.name) return l;
+      let ing = findIngredient(l.name, l.inci);
+      if (!ing) { ing = db.insert('ingredients', { code: nextIngredientCode(), name: l.name, inci: l.inci || '', category: s.categories.includes('Autre') ? 'Autre' : s.categories[0], role: l.role || '', unit: 'g', stock: 0, minStock: 0, cost: 0, location: 'Laboratoire', notes: `Ajouté depuis la fiche théorique « ${r.name} » (à approvisionner).` }); n++; }
+      return { ...l, ingredientId: ing.id };
+    });
+    db.update('recipes', recipeId, { lines });
+    toast(`${n} ingrédient${n > 1 ? 's' : ''} ajouté${n > 1 ? 's' : ''} à l’inventaire (stock 0)`);
+    m.close();
+  });
 }
 
 export default {
