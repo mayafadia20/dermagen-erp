@@ -4,6 +4,10 @@
 import { db } from './store.js';
 import { num, dateFmt } from './ui.js';
 import { TOOL_DEFS, TOOLS_NOTE, runTool } from './outils.js';
+import { recipeLines } from './recettes.js';
+
+/** Composition d'une fiche théorique en texte (ancien format [clé, %] ou lignes créées dans l'ERP). */
+const describeRecipe = (r) => { const ls = recipeLines(r); const water = ls.find(l => l.qsp); return ls.filter(l => !l.qsp).map(l => `${l.phase || '?'}:${l.name || '?'} ${num(l.pct, 2)} %`).join(', ') + (water ? `, eau qsp 100 (${num(water.pct, 2)} %)` : ''); };
 
 export const MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (recommandé)'],
@@ -63,15 +67,15 @@ export function buildContext(formulationId, recipeId) {
   const recipes = db.all('recipes').slice().sort((a, b) => (a.order || 0) - (b.order || 0));
   if (recipes.length) {
     lines.push('', `## Fiches théoriques de la gamme (cahier de charge, ${recipes.length})`);
-    for (const r of recipes) { const comp = (r.lines || []).map(([k, p]) => `${k} ${p}%`).join(', '); lines.push(`- ${r.name} (${r.phase === 'T' ? 'phase T' : 'phase N'}, ${r.bottle}) : ${comp}, eau qsp 100. ${r.usage || ''} ${r.warning ? 'Attention : ' + r.warning : ''}`); }
+    for (const r of recipes) { const comp = describeRecipe(r); lines.push(`- ${r.name} (${r.phase === 'T' ? 'phase T' : 'phase N'}${r.bottle ? ', ' + r.bottle : ''}${r.archived ? ', archivée' : ''}) : ${comp}. ${r.usage || ''} ${r.warning ? 'Attention : ' + r.warning : ''}`); }
   }
   const rec = recipeId ? db.get('recipes', recipeId) : null;
   if (rec) {
-    lines.push('', `## Fiche théorique concernée : ${rec.name} (${rec.bottle}, ${rec.variant}, phase ${rec.phase})`);
+    lines.push('', `## Fiche théorique concernée : ${rec.name} (${[rec.bottle, rec.variant].filter(Boolean).join(', ')}${rec.bottle || rec.variant ? ', ' : ''}phase ${rec.phase})`);
     if (rec.description) lines.push(`Description : ${rec.description}`);
     if (rec.usage) lines.push(`Utilisation : ${rec.usage}`);
     if (rec.warning) lines.push(`Avertissement du cahier de charge : ${rec.warning}`);
-    lines.push('Formule théorique (pour 100 g) : eau qsp 100 + ' + (rec.lines || []).map(([k, p]) => `${k} ${p} %`).join(', '));
+    lines.push('Formule théorique (pour 100 g) : ' + describeRecipe(rec));
     const essais = db.all('formulations').filter(x => x.recipeId === rec.id).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
     if ((rec.steps || []).length) { lines.push('Mode opératoire de la fiche :'); rec.steps.forEach((st, i) => lines.push(`  ${i + 1}. ${st}`)); }
     lines.push(`Formulations réelles rattachées : ${essais.length}`);

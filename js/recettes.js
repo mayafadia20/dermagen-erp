@@ -92,9 +92,15 @@ export const defaultSteps = (key) => (STEPS_BY_KEY[key] || []).slice();
 export const PHASE_LABEL = { T: 'Phase T — Transformante', N: 'Phase N — Nourrissante' };
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’']/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
-function nextIngredientCode() {
+export function nextIngredientCode() {
   const codes = db.all('ingredients').map(i => /^ING-(\d+)$/.exec(i.code || '')).filter(Boolean).map(m => +m[1]);
   return 'ING-' + String((codes.length ? Math.max(...codes) : 0) + 1).padStart(3, '0');
+}
+/** Retrouve un ingrédient de l'inventaire par son nom ou son INCI (sans le créer). */
+export function findIngredient(name, inci) {
+  const n = norm(name), i = norm(inci);
+  if (!n && !i) return null;
+  return db.all('ingredients').find(x => (n && norm(x.name) === n) || (i && x.inci && norm(x.inci) === i) || (n && x.inci && norm(x.inci) === n)) || null;
 }
 /** Retrouve un ingrédient de l'inventaire par nom, INCI ou alias ; le crée (stock 0) s'il n'existe pas. */
 export function resolveIngredient(key) {
@@ -122,9 +128,12 @@ export function ensureRecipes() {
       db.all('formulations').filter(f => f.recipeId === r.id).forEach(f => db.update('formulations', f.id, { recipeId: keep.id }));
       db.remove('recipes', r.id);
     }
+    const removed = new Set(db.settings().recipesRemoved || []);   // fiches du cahier supprimées par l'utilisatrice : ne pas les recréer
     for (const r of RECIPES) {
+      if (removed.has(r.key)) continue;
       const found = db.all('recipes').find(x => x.key === r.key);
       if (found) {
+        if (found.edited) continue;   // fiche modifiée dans l'ERP : ses libellés et lignes font foi
         const patch = {};
         if (!Array.isArray(found.steps)) patch.steps = defaultSteps(r.key);
         // Libellés et descriptions suivent le cahier de charge (ex. F1 devenue fiche unique)
@@ -148,9 +157,22 @@ export function ensureRecipes() {
 
 /** Lignes concrètes d'une fiche (ingrédients résolus, eau en complément à 100 %). */
 export function recipeLines(recipe) {
-  const lines = (recipe.lines || []).map(([key, pct, role]) => { const ing = resolveIngredient(key); return { phase: ING[key].phase, ingredientId: ing.id, pct, role: role || ING[key].role, key }; });
+  const raw = recipe.lines || [];
+  if (raw.length && !Array.isArray(raw[0])) {
+    // Format des fiches créées ou modifiées dans l'ERP : { phase, name, inci, ingredientId?, pct, role, qsp }
+    const lines = raw.map(l => {
+      const ing = (l.ingredientId && db.get('ingredients', l.ingredientId)) || findIngredient(l.name, l.inci);
+      return { ...l, ingredientId: ing ? ing.id : '', name: ing?.name || l.name || '', inci: ing?.inci || l.inci || '', pct: Number(l.pct) || 0 };
+    });
+    const others = lines.filter(l => !l.qsp).reduce((t, l) => t + l.pct, 0);
+    const water = Math.max(0, Math.round((100 - others) * 1000) / 1000);
+    let first = true;
+    for (const l of lines) if (l.qsp) { l.pct = first ? water : 0; first = false; }
+    return lines;
+  }
+  const lines = raw.map(([key, pct, role]) => { const ing = resolveIngredient(key); return { phase: ING[key].phase, ingredientId: ing.id, pct, role: role || ING[key].role, key, name: ing.name, inci: ing.inci }; });
   const water = Math.round((100 - lines.reduce((t, l) => t + l.pct, 0)) * 1000) / 1000;
   const eau = resolveIngredient('eau');
-  return [{ phase: 'A', ingredientId: eau.id, pct: water, role: 'Véhicule (qsp 100)', key: 'eau' }, ...lines];
+  return [{ phase: 'A', ingredientId: eau.id, pct: water, role: 'Véhicule (qsp 100)', key: 'eau', name: eau.name, inci: eau.inci, qsp: true }, ...lines];
 }
 export const ingredientInfo = (key) => ING[key];
