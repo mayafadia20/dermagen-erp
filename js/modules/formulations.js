@@ -73,17 +73,26 @@ function lineRow(l = {}, ingredients, sheetIds = new Set()) {
   </tr>`;
 }
 
-export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecipe } = {}) {
+/** fromRecipe : fiche théorique de rattachement ; fromFormulation (facultatif, avec fromRecipe) : version réelle dont on reprend
+ *  les ingrédients et le mode opératoire au lieu de ceux de la fiche. */
+export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecipe, fromFormulation } = {}) {
   const s = db.settings();
   const recipes = db.all('recipes').slice().sort((a, b) => (a.order || 0) - (b.order || 0));
-  const fromR = fromRecipe ? { code: nextCode(today()), date: today(), version: db.all('formulations').filter(x => x.recipeId === fromRecipe.id).length + 1, status: STATUSES[0], productType: 'Traitement lissant', batchSize: 100, recipeId: fromRecipe.id, name: fromRecipe.name, objective: fromRecipe.description || '', steps: (fromRecipe.steps || []).slice(), lines: recipeLines(fromRecipe).map(l => ({ phase: l.phase, ingredientId: l.ingredientId, pct: l.pct, role: l.role })) } : null;
+  const src = fromRecipe && fromFormulation ? fromFormulation : null;   // version réelle choisie comme base
+  const fromR = fromRecipe ? {
+    code: nextCode(today()), date: today(), version: db.all('formulations').filter(x => x.recipeId === fromRecipe.id).length + 1, status: STATUSES[0],
+    productType: src?.productType || 'Traitement lissant', batchSize: src?.batchSize || 100, recipeId: fromRecipe.id, name: fromRecipe.name,
+    objective: src?.objective || fromRecipe.description || '', parentCode: src?.code,
+    steps: src ? stepsOf(src).slice() : (fromRecipe.steps || []).slice(),
+    lines: src ? (src.lines || []).map(l => ({ phase: l.phase, ingredientId: l.ingredientId, pct: l.pct, role: l.role })) : recipeLines(fromRecipe).map(l => ({ phase: l.phase, ingredientId: l.ingredientId, pct: l.pct, role: l.role })),
+  } : null;
   const ingredients = db.all('ingredients').filter(i => i.category !== 'Matériel de laboratoire').slice().sort((a, b) => a.name.localeCompare(b.name));
   const sheet = fromRecipe || (existing?.recipeId ? db.get('recipes', existing.recipeId) : null) || (duplicateFrom?.recipeId ? db.get('recipes', duplicateFrom.recipeId) : null);
   const sheetIds = new Set(sheet ? recipeLines(sheet).map(l => l.ingredientId) : []);
   const base = duplicateFrom ? { ...duplicateFrom, id: undefined, code: nextCode(today()), date: today(), version: (Number(duplicateFrom.version) || 1) + 1, status: 'En développement', parentCode: duplicateFrom.code, notes: '' } : null;
   const f = base || fromR || existing || { code: nextCode(today()), date: today(), version: 1, status: STATUSES[0], productType: s.productTypes[0], batchSize: 100, lines: [{ phase: 'A' }, { phase: 'A' }, { phase: 'B' }] };
   const m = openModal({
-    title: fromR ? `Nouvelle formulation — ${fromRecipe.name}` : base ? `Nouvelle version de ${duplicateFrom.code}` : existing ? 'Modifier la formulation' : 'Nouvelle formulation', wide: true,
+    title: fromR ? `Nouvelle formulation — ${fromRecipe.name}${src ? ` (à partir de ${src.code} v${src.version || 1})` : ' (formule théorique)'}` : base ? `Nouvelle version de ${duplicateFrom.code}` : existing ? 'Modifier la formulation' : 'Nouvelle formulation', wide: true,
     body: `<div class="form-grid">
       ${field({ label: 'Code', name: 'code', value: f.code, required: true, cols: 1 })}
       ${field({ label: 'Nom de la formulation', name: 'name', value: f.name, required: true, cols: 2, placeholder: 'ex. Masque réparateur kératine v2' })}
@@ -120,7 +129,7 @@ export function openFormulationForm(existing, onDone, { duplicateFrom, fromRecip
       data.weekKey = isoWeek(data.date).key;
       const tasks = readTasks(form);
       if (existing) { db.update('formulations', existing.id, data); const n = syncTasks(existing.id, tasks); toast('Formulation mise à jour' + (n.created ? ` · ${n.created} tâche(s) créée(s)` : '')); onDone && onDone(existing.id); }
-      else { if (base) data.parentCode = base.parentCode; const rec = db.insert('formulations', data); const n = syncTasks(rec.id, tasks); toast('Formulation créée' + (n.created ? ` · ${n.created} tâche(s) assignée(s)` : '')); onDone && onDone(rec.id); }
+      else { if (base) data.parentCode = base.parentCode; else if (fromR?.parentCode) data.parentCode = fromR.parentCode; const rec = db.insert('formulations', data); const n = syncTasks(rec.id, tasks); toast('Formulation créée' + (n.created ? ` · ${n.created} tâche(s) assignée(s)` : '')); onDone && onDone(rec.id); }
     }
   });
   const form = m.form;
@@ -616,7 +625,23 @@ function renderRecipe(el, ctx, r) {
     const ed = e.target.closest('[data-edit-step]');
     if (ed) { const i = +ed.dataset.editStep; openModal({ title: `Étape ${i + 1}`, body: `<div class="form-grid">${field({ label: 'Texte de l’étape', name: 'text', type: 'textarea', rows: 3, value: r.steps[i], required: true, cols: 4 })}</div>`, onSubmit(d) { const steps = r.steps.slice(); steps[i] = d.text.trim(); saveSteps(steps); } }); }
   });
-  const create = () => openFormulationForm(null, id => ctx.navigate('formulations', id), { fromRecipe: r });
+  // Base de la nouvelle formulation : formule théorique de la fiche, ou ingrédients + mode opératoire d'une version réelle existante.
+  const create = () => {
+    const real = db.all('formulations').filter(f => f.recipeId === r.id).sort((a, b) => (Number(a.version) || 1) - (Number(b.version) || 1) || (a.date || '').localeCompare(b.date || ''));
+    const open = (fromFormulation) => openFormulationForm(null, id => ctx.navigate('formulations', id), { fromRecipe: r, fromFormulation });
+    if (!real.length) return open(null);
+    const option = (value, title, sub, checked) => `<label class="choice"><input type="radio" name="source" value="${esc(value)}" ${checked ? 'checked' : ''}><span><span class="choice-title">${title}</span><span class="choice-sub">${sub}</span></span></label>`;
+    openModal({
+      title: 'Sur quelle base créer la formulation ?',
+      body: `<p class="muted" style="margin:0 0 10px">Les ingrédients et le mode opératoire seront préremplis à partir de la base choisie ; tu pourras tout modifier avant d’enregistrer.</p>
+        <div class="choice-list">
+          ${option('recipe', 'Formule théorique de la fiche', `${lines.length} ingrédient(s) · ${(r.steps || []).length} étape(s)`, true)}
+          ${real.map(f => option(f.id, `${esc(f.code)} · v${f.version || 1}${f.status ? ' · ' + esc(f.status) : ''}`, `${dateFmt(f.date)} · ${(f.lines || []).length} ingrédient(s) · ${stepsOf(f).length} étape(s)${f.author ? ' · ' + esc(f.author) : ''}`)).join('')}
+        </div>`,
+      submitLabel: 'Continuer',
+      onSubmit(d) { open(d.source && d.source !== 'recipe' ? db.get('formulations', d.source) : null); }
+    });
+  };
   el.querySelector('[data-create]').addEventListener('click', create);
   el.addEventListener('click', e => { const tr = e.target.closest('tr[data-open]'); if (tr) ctx.navigate('formulations', tr.dataset.open); });
 }

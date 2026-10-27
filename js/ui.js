@@ -120,6 +120,7 @@ export function formData(form) {
     if (el.closest('[data-repeat-row]')) continue; // lignes répétées gérées séparément
     const n = el.name;
     if (el.type === 'checkbox') out[n] = el.checked;
+    else if (el.type === 'radio') { if (el.checked) out[n] = el.value; else if (!(n in out)) out[n] = ''; }
     else if (el.type === 'number') out[n] = el.value === '' ? null : Number(el.value);
     else out[n] = el.value.trim();
   }

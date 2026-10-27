@@ -171,7 +171,7 @@ input, select, textarea {
 input:hover, select:hover, textarea:hover { background: #fff; }
 input:focus, select:focus, textarea:focus { border-color: var(--purple); background: #fff; box-shadow: 0 0 0 4px var(--purple-pale); }
 input[type="search"].search { max-width: 340px; border-radius: 999px; padding-left: 16px; }
-input[type="checkbox"] { width: auto; accent-color: var(--purple); }
+input[type="checkbox"], input[type="radio"] { width: auto; accent-color: var(--purple); padding: 0; box-shadow: none; }
 textarea { resize: vertical; min-height: 60px; }
 .form-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 14px; }
 .field { display: flex; flex-direction: column; gap: 5px; grid-column: span 2; }
@@ -445,3 +445,14 @@ body.login-open { overflow: hidden; }
 .col-pop .check:hover { background: var(--purple-pale); }
 .col-pop .check input { accent-color: var(--purple); width: 16px; height: 16px; }
 .col-pop-foot { padding: 8px 6px 2px; border-top: 1px solid var(--line); margin-top: 6px; }
+
+/* Choix de la base d'une nouvelle formulation (fiche théorique ou version réelle) */
+.choice-list { display: flex; flex-direction: column; gap: 8px; }
+.choice { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 16px; background: rgba(255,255,255,.55); border: 1.5px solid var(--line); cursor: pointer; transition: border-color .15s, background .15s; }
+.choice:hover { background: rgba(255,255,255,.85); }
+.choice:has(input:checked) { border-color: var(--purple); background: rgba(141,123,240,.10); }
+.choice input { width: 18px; height: 18px; margin: 2px 0 0; padding: 0; flex: none; accent-color: var(--purple); }
+.choice:has(input:focus) { box-shadow: 0 0 0 4px var(--purple-pale); }
+.choice > span { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.choice-title { font-weight: 600; }
+.choice-sub { font-size: 12.5px; color: var(--grey-t); }
